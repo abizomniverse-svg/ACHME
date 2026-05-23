@@ -1,58 +1,210 @@
 @echo off
 setlocal enabledelayedexpansion
+title ACHME CRM - Development Servers
 
-echo Checking and installing dependencies...
-
-echo Checking Backend dependencies...
-cd /d "%~dp0backend"
-if not exist node_modules (
-    echo Installing backend dependencies...
-    npm install
-) else (
-    echo Backend dependencies already installed.
-)
-
-echo Checking Puppeteer Chrome browser...
-if not exist "C:\Users\thana\.cache\puppeteer\chrome\win64-146.0.7680.153\chrome-win64\chrome.exe" (
-    echo Installing Chrome for Puppeteer PDF generation...
-    npx puppeteer browsers install chrome
-) else (
-    echo Puppeteer Chrome already installed.
-)
-
-echo Checking Frontend dependencies...
-cd /d "%~dp0frontend"
-if not exist node_modules (
-    echo Installing frontend dependencies...
-    npm install
-) else (
-    echo Frontend dependencies already installed.
-)
-
-echo Starting Backend Server on 0.0.0.0:5000...
-cd /d "%~dp0backend"
-start "Backend" cmd /k "npm run dev"
-
-echo Starting Frontend Server on 0.0.0.0:3000...
-cd /d "%~dp0frontend"
-start "Frontend" cmd /k "npx cross-env HOST=0.0.0.0 react-scripts start"
+set "ROOT=%~dp0"
+set "ROOT=%ROOT:~0,-1%"
+set "BACKEND_PORT=5000"
+set "FRONTEND_PORT=3000"
 
 echo.
-echo ========================================
-echo Servers starting...
-echo Backend: http://localhost:5000
-echo Frontend: http://localhost:3000
+echo ====================================================================
+echo  ACHME CRM - DEVELOPMENT STARTER
+echo ====================================================================
 echo.
-echo To access from other devices on your network:
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (
-    set IP=%%a
-    set IP=!IP: =!
-    if not "!IP!"=="" (
-        echo Frontend: http://!IP!:3000
-        echo Backend:  http://!IP!:5000
-    )
+
+call :detect_ip
+if errorlevel 1 exit /b 1
+call :ensure_node
+if errorlevel 1 exit /b 1
+call :ensure_mysql
+if errorlevel 1 exit /b 1
+call :write_backend_env
+if errorlevel 1 exit /b 1
+call :write_frontend_env
+if errorlevel 1 exit /b 1
+call :install_backend
+if errorlevel 1 exit /b 1
+call :install_frontend
+if errorlevel 1 exit /b 1
+call :open_firewall_dev
+if errorlevel 1 exit /b 1
+call :stop_port %BACKEND_PORT%
+if errorlevel 1 exit /b 1
+call :stop_port %FRONTEND_PORT%
+if errorlevel 1 exit /b 1
+
+echo.
+echo Starting backend on 0.0.0.0:%BACKEND_PORT%...
+start "ACHME Backend :%BACKEND_PORT%" cmd /k "cd /d ""%ROOT%\backend"" && npm run dev"
+
+echo Starting frontend on 0.0.0.0:%FRONTEND_PORT%...
+start "ACHME Frontend :%FRONTEND_PORT%" cmd /k "cd /d ""%ROOT%\frontend"" && npx cross-env HOST=0.0.0.0 PORT=%FRONTEND_PORT% react-scripts start"
+
+echo.
+echo ====================================================================
+echo  ACHME CRM DEVELOPMENT SERVERS ARE STARTING
+echo ====================================================================
+echo.
+echo  Open on this PC:       http://localhost:%FRONTEND_PORT%
+echo  Open from LAN devices: http://%LAN_IP%:%FRONTEND_PORT%
+echo.
+echo  Backend health:        http://localhost:%BACKEND_PORT%/api/health
+echo  Backend LAN health:    http://%LAN_IP%:%BACKEND_PORT%/api/health
+echo.
+echo  Login: Kk@achmecommunication.com / kk@admin@123
+echo.
+echo  Keep the two opened command windows running.
+echo ====================================================================
+echo.
+pause
+exit /b 0
+
+:detect_ip
+echo [1/8] Detecting LAN IP...
+set "LAN_IP="
+for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$ip = (Find-NetRoute -RemoteIPAddress '8.8.8.8' -ErrorAction SilentlyContinue | Select-Object -First 1).LocalIPAddress; if (-not $ip) { $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress }; $ip"`) do set "LAN_IP=%%i"
+if "%LAN_IP%"=="" set "LAN_IP=127.0.0.1"
+echo   LAN IP: %LAN_IP%
+exit /b 0
+
+:ensure_node
+echo [2/8] Checking Node.js and npm...
+where node >nul 2>&1
+if errorlevel 1 (
+  echo   Node.js was not found.
+  where winget >nul 2>&1
+  if errorlevel 1 (
+    echo   [FAIL] Install Node.js 20 LTS from https://nodejs.org and run this file again.
+    pause
+    exit /b 1
+  )
+  echo   Installing Node.js LTS using winget...
+  winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+  if errorlevel 1 goto fail
 )
-echo ========================================
+node --version
+npm --version
+exit /b 0
+
+:ensure_mysql
+echo [3/8] Checking MySQL on port 3306...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -LocalPort 3306 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
+if not errorlevel 1 (
+  echo   MySQL is listening on port 3306.
+  exit /b 0
+)
+echo   MySQL is not listening yet. Trying to start a local MySQL service...
+for %%S in (MySQL80 MySQL MySQL57 mysql) do (
+  net start %%S >nul 2>&1
+  if not errorlevel 1 goto mysql_started
+)
+where winget >nul 2>&1
+if errorlevel 1 (
+  echo   [FAIL] MySQL is required. Install MySQL Server 8, create user achme_user, then run again.
+  pause
+  exit /b 1
+)
+echo   MySQL service was not found. Installing MySQL Server with winget...
+winget install -e --id Oracle.MySQL --accept-package-agreements --accept-source-agreements
+echo   After MySQL setup finishes, make sure the MySQL service is running and run this file again.
+pause
+exit /b 1
+:mysql_started
+echo   MySQL service started.
+exit /b 0
+
+:write_backend_env
+echo [4/8] Writing backend development .env...
+(
+echo # ACHME CRM Backend - Development Configuration
+echo # Auto-generated by start-servers.bat
+echo PORT=%BACKEND_PORT%
+echo NODE_ENV=development
+echo ALLOWED_ORIGIN=http://localhost:%FRONTEND_PORT%,http://%LAN_IP%:%FRONTEND_PORT%
+echo DEFAULT_TEST_PASSWORD=Test@12345
+echo DB_HOST=127.0.0.1
+echo DB_PORT=3306
+echo DB_USER=achme_user
+echo DB_PASS=AchmeSecure@2024
+echo DB_NAME=achme
+echo SMTP_HOST=smtp.gmail.com
+echo SMTP_PORT=587
+echo EMAIL_USER=thanan757@gmail.com
+echo EMAIL_PASS=ghjv omqm hwji kerq
+echo JWT_SECRET=97418d0c15d57ade768586b8501e35d34e5a5277f2a0570b6d5b47ef93f5b33e88b80045c60efd77e6edcbb015dbe46cf6747ce1dd8f11361f3e426ddc677c9a
+) > "%ROOT%\backend\.env"
+exit /b 0
+
+:write_frontend_env
+echo [5/8] Writing frontend development .env...
+(
+echo REACT_APP_API_URL=http://%LAN_IP%:%BACKEND_PORT%
+echo REACT_APP_API_PROXY=http://%LAN_IP%:%BACKEND_PORT%
+) > "%ROOT%\frontend\.env"
+exit /b 0
+
+:install_backend
+echo [6/8] Installing/checking backend dependencies...
+cd /d "%ROOT%\backend"
+if exist package-lock.json (
+  call npm install
+) else (
+  call npm install
+)
+if errorlevel 1 goto fail
+echo   Installing/checking Puppeteer browser...
+call npx puppeteer browsers install chrome
+if errorlevel 1 echo   [WARN] Puppeteer browser install failed. PDFs may fail until Chrome is installed.
+echo   Ensuring ACHME database user exists...
+call node ensure_db_user.js
+if errorlevel 1 (
+  echo.
+  echo [FAIL] Database user setup failed.
+  pause
+  exit /b 1
+)
+echo   Checking database and creating tables if needed...
+call node db_init.js
+if errorlevel 1 (
+  echo.
+  echo [FAIL] Database login failed.
+  echo        Ensure MySQL has user: achme_user
+  echo        Password: AchmeSecure@2024
+  echo        Database: achme
+  pause
+  exit /b 1
+)
+exit /b 0
+
+:install_frontend
+echo [7/8] Installing/checking frontend dependencies...
+cd /d "%ROOT%\frontend"
+call npm install
+if errorlevel 1 goto fail
+exit /b 0
+
+:open_firewall_dev
+echo [8/8] Opening Windows Firewall ports when allowed...
+net session >nul 2>&1
+if errorlevel 1 (
+  echo   Not running as Administrator. If LAN devices cannot connect, allow TCP %FRONTEND_PORT% and %BACKEND_PORT% in Windows Firewall.
+  exit /b 0
+)
+netsh advfirewall firewall add rule name="ACHME CRM Frontend %FRONTEND_PORT%" dir=in action=allow protocol=TCP localport=%FRONTEND_PORT% >nul 2>&1
+netsh advfirewall firewall add rule name="ACHME CRM Backend %BACKEND_PORT%" dir=in action=allow protocol=TCP localport=%BACKEND_PORT% >nul 2>&1
+echo   Firewall rules are ready.
+exit /b 0
+
+:stop_port
+set "PORT_TO_STOP=%~1"
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%PORT_TO_STOP% .*LISTENING"') do (
+  taskkill /f /pid %%P >nul 2>&1
+)
+exit /b 0
+
+:fail
 echo.
-echo Press any key to exit...
-pause > nul
+echo [FAIL] Setup failed. Check the error above, then run this file again.
+pause
+exit /b 1

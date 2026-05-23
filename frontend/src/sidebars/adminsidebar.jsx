@@ -76,7 +76,7 @@ const Sidebar = ({ onNavigate }) => {
       ]
     },
     { icon: <BarChart2 size={20} />, title: "Reports", path: "/dashboard/reports" },
-    { icon: <User size={20} />, title: "Profile", path: "/dashboard/profile" },
+    // { icon: <User size={20} />, title: "Profile", path: "/dashboard/profile" },
     // { icon: <Settings size={20} />, title: "Settings", path: "/dashboard/settings" }
   ];
 

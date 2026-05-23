@@ -209,17 +209,9 @@ function runCheckMissed() {
   );
 }
 
-// Run every 15 minutes
-schedule.scheduleJob("*/15 * * * *", runCheckMissed);
-
-// Run every minute to check for upcoming reminders (within 5 min)
-schedule.scheduleJob("* * * * *", runCheckUpcomingReminders);
-
-// Also run once on startup
-setTimeout(runCheckMissed, 3000);
-setTimeout(runCheckUpcomingReminders, 5000);
-
-console.log("[Scheduler] Reminder escalation scheduler started (every 15 min)");
+let scheduledJobs = [];
+let startupTimers = [];
+let schedulerStarted = false;
 
 // End of day task check - runs daily at 6 PM
 function runDailyTaskCheck() {
@@ -282,15 +274,57 @@ function runDailyTaskCheck() {
   );
 }
 
-// Run daily at 6 PM
-schedule.scheduleJob("0 18 * * *", runDailyTaskCheck);
+function rememberTimer(timer) {
+  startupTimers.push(timer);
+  if (timer && typeof timer.unref === "function") {
+    timer.unref();
+  }
+  return timer;
+}
 
-// Also run once on startup (with delay)
-setTimeout(() => {
-  console.log("[Scheduler] Running initial task check...");
-  runDailyTaskCheck();
-}, 10000);
+function startSchedulers() {
+  if (schedulerStarted) return;
+  schedulerStarted = true;
 
-console.log("[Scheduler] End-of-day task scheduler started (daily at 6 PM)");
+  // Run every 15 minutes.
+  scheduledJobs.push(schedule.scheduleJob("*/15 * * * *", runCheckMissed));
 
-module.exports = { runCheckMissed, runDailyTaskCheck };
+  // Run every minute to check for upcoming reminders within 5 minutes.
+  scheduledJobs.push(schedule.scheduleJob("* * * * *", runCheckUpcomingReminders));
+
+  // Also run once on startup.
+  rememberTimer(setTimeout(runCheckMissed, 3000));
+  rememberTimer(setTimeout(runCheckUpcomingReminders, 5000));
+
+  console.log("[Scheduler] Reminder escalation scheduler started (every 15 min)");
+
+  // Run daily at 6 PM.
+  scheduledJobs.push(schedule.scheduleJob("0 18 * * *", runDailyTaskCheck));
+
+  // Also run once on startup with a delay.
+  rememberTimer(setTimeout(() => {
+    console.log("[Scheduler] Running initial task check...");
+    runDailyTaskCheck();
+  }, 10000));
+
+  console.log("[Scheduler] End-of-day task scheduler started (daily at 6 PM)");
+}
+
+function stopSchedulers() {
+  scheduledJobs.forEach((job) => {
+    if (job && typeof job.cancel === "function") job.cancel();
+  });
+  scheduledJobs = [];
+
+  startupTimers.forEach((timer) => clearTimeout(timer));
+  startupTimers = [];
+  schedulerStarted = false;
+}
+
+module.exports = {
+  runCheckMissed,
+  runCheckUpcomingReminders,
+  runDailyTaskCheck,
+  startSchedulers,
+  stopSchedulers
+};

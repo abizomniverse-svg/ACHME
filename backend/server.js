@@ -122,35 +122,43 @@ server.on("error", (error) => {
   throw error;
 });
 
-db.ready.then(() => {
-  const io = initSocket(server, corsOrigins);
-  const notificationIO = initNotificationsSocket(io, corsOrigins);
-  app.set("io", io);
-  app.set("notificationIO", io);
-  require("./backendutil/reminderScheduler");
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Server running: http://0.0.0.0:${PORT} [${process.env.NODE_ENV || "development"}]`);
+function startServer() {
+  return db.ready.then(() => {
+    const io = initSocket(server, corsOrigins);
+    const notificationIO = initNotificationsSocket(io, corsOrigins);
+    app.set("io", io);
+    app.set("notificationIO", io);
+    require("./backendutil/reminderScheduler").startSchedulers();
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log(`✅ Server running: http://0.0.0.0:${PORT} [${process.env.NODE_ENV || "development"}]`);
 
-    // Optional Port 80 redirect server for client domain convenience
-    if (process.env.NODE_ENV === "production" && PORT === 82) {
-      const redirectApp = express();
-      redirectApp.get("/{*splat}", (req, res) => {
-        const host = req.headers.host ? req.headers.host.split(":")[0] : "achme.com";
-        res.redirect(`http://${host}:82${req.originalUrl}`);
-      });
-      http.createServer(redirectApp).listen(80, "0.0.0.0", () => {
-        console.log(`🚀 Automatic redirect server active on port 80 (routing http://achme.com -> http://achme.com:82)`);
-      }).on("error", (err) => {
-        if (err.code === "EADDRINUSE") {
-          console.log(`ℹ️ Port 80 is occupied (redirect server bypassed; access CRM using port 82)`);
-        } else {
-          console.warn(`⚠️ Redirect server port 80 failed:`, err.message);
-        }
-      });
-    }
+      // Optional Port 80 redirect server for client domain convenience
+      if (process.env.NODE_ENV === "production" && PORT === 82) {
+        const redirectApp = express();
+        redirectApp.get("/{*splat}", (req, res) => {
+          const host = req.headers.host ? req.headers.host.split(":")[0] : "achme.com";
+          res.redirect(`http://${host}:82${req.originalUrl}`);
+        });
+        http.createServer(redirectApp).listen(80, "0.0.0.0", () => {
+          console.log(`🚀 Automatic redirect server active on port 80 (routing http://achme.com -> http://achme.com:82)`);
+        }).on("error", (err) => {
+          if (err.code === "EADDRINUSE") {
+            console.log(`ℹ️ Port 80 is occupied (redirect server bypassed; access CRM using port 82)`);
+          } else {
+            console.warn(`⚠️ Redirect server port 80 failed:`, err.message);
+          }
+        });
+      }
+    });
+  }).catch((error) => {
+    console.error("Database is not ready. Server not started.");
+    console.error(`Check DB_HOST, DB_PORT, DB_USER, DB_PASS, and DB_NAME in backend/.env. Details: ${error.message}`);
+    process.exit(1);
   });
-}).catch((error) => {
-  console.error("Database is not ready. Server not started.");
-  console.error(`Check DB_HOST, DB_PORT, DB_USER, DB_PASS, and DB_NAME in backend/.env. Details: ${error.message}`);
-  process.exit(1);
-});
+}
+
+app.startServer = startServer;
+
+if (process.env.NODE_ENV !== "test") {
+  startServer();
+}
