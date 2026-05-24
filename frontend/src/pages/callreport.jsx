@@ -197,12 +197,14 @@ const DetailModal = ({ call, onClose, formatCurrency }) => {
         <div className="p-6 space-y-5">
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wide mb-3 text-primary">Customer Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <DetailItem icon={User} label="Customer Name" value={call.customer || call.client_name} />
-              <DetailItem icon={PhoneIcon} label="Mobile" value={call.mobile_number || call.phone} />
-              <DetailItem icon={Mail} label="Email" value={call.email} />
-              <DetailItem icon={MapPin} label="Location" value={call.location_city || call.location} />
-            </div>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+               <DetailItem icon={User} label="Customer Name" value={call.customer || call.client_name} />
+               <DetailItem icon={PhoneIcon} label="Mobile" value={call.mobile_number || call.phone} />
+               <DetailItem icon={Mail} label="Email" value={call.email} />
+               <DetailItem icon={MapPin} label="Location" value={call.location_city || call.location} />
+               <DetailItem icon={FileText} label="GST Number" value={call.gst_number || "—"} />
+               <DetailItem icon={FileText} label="Company Name" value={call.company_name || "—"} />
+             </div>
           </div>
 
           <div>
@@ -322,10 +324,11 @@ const CallReport = () => {
   const [editId, setEditId] = useState(null);
   const [detailCall, setDetailCall] = useState(null);
 
-  const [basicForm, setBasicForm] = useState({
-    customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
-    invoice_value: "", priority: "", call_referrer: "", status: "", payment_type: "", payment_status: "",
-  });
+   const [basicForm, setBasicForm] = useState({
+     customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
+     invoice_value: "", priority: "", call_referrer: "", status: "", payment_type: "", payment_status: "",
+     gst_number: "", company_name: "",
+   });
 
   const [basicContractSearchResults, setBasicContractSearchResults] = useState([]);
   const [basicContractLoading, setBasicContractLoading] = useState(false);
@@ -735,15 +738,15 @@ const CallReport = () => {
     return ENGINEERS.filter(e => !busyEngineers.includes(e.value));
   }, [busyEngineers]);
 
-  const openBasicForm = () => {
-    setBasicForm({ customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
-      invoice_value: "", priority: "", call_referrer: "", status: "", payment_type: "", payment_status: "" });
-    setSelectedBasicContract(null);
-    setBasicContractSearchResults([]);
-    setModalOpen(true);
-    setIsEdit(false);
-    setEditId(null);
-  };
+   const openBasicForm = () => {
+     setBasicForm({ customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
+       invoice_value: "", priority: "", call_referrer: "", status: "", payment_type: "", payment_status: "", gst_number: "", company_name: "" });
+     setSelectedBasicContract(null);
+     setBasicContractSearchResults([]);
+     setModalOpen(true);
+     setIsEdit(false);
+     setEditId(null);
+   };
 
   const handleBasicContractSelect = (contractTitle) => {
     const contract = basicContractSearchResults.find(c => c.value === contractTitle);
@@ -1297,7 +1300,9 @@ const CallReport = () => {
                                     customer_id: customer.customer_id || "",
                                     mobile_number: customer.mobile_number || "",
                                     email: customer.email || "",
-                                    location_city: customer.location_city || ""
+                                    location_city: customer.location_city || "",
+                                    gst_number: customer.gst_number || "",
+                                    company_name: customer.company_name || ""
                                   });
                                   setCustomerSearchResults([]);
                                 }}
