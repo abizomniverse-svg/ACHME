@@ -3,9 +3,8 @@ import "../Styles/tailwind.css";
 import { Search, Plus, X, Trash2, Edit, ChevronDown, ChevronUp, Download, Eye, AlertCircle, CheckCircle, Clock, Phone, CreditCard, DollarSign, AlertTriangle, MapPin, Phone as PhoneIcon, FileText, Calendar, DollarSign as DollarIcon, User, Tag, MessageSquare, TrendingUp, BarChart3, PieChart as PieChartIcon, Activity, Mail, Wrench, Users, Zap } from "lucide-react";
 import axios from "axios";
 import socket from "../socket/socket";
+import { API } from "../config";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from "recharts";
-
-const API = "http://localhost:5000";
 
 const PIE_COLORS = ["#3B82F6", "#22C55E", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16"];
 
@@ -327,7 +326,7 @@ const CallReport = () => {
    const [basicForm, setBasicForm] = useState({
      customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
      invoice_value: "", priority: "", call_referrer: "", status: "", payment_type: "", payment_status: "",
-     gst_number: "", company_name: "",
+     gst_number: "", company_name: "", contract_title: "",
    });
 
   const [basicContractSearchResults, setBasicContractSearchResults] = useState([]);
@@ -337,7 +336,7 @@ const CallReport = () => {
   const [form, setForm] = useState({
     customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", call_details: "",
     priority: "", call_referrer: "", status: "", call_type: "",
-    payment_type: "", invoice_value: "", payment_status: "", duration: "",
+    payment_type: "", invoice_value: "", payment_status: "", duration: "", contract_title: "",
   });
 
   const [step2Form, setStep2Form] = useState({
@@ -370,42 +369,45 @@ const CallReport = () => {
     return () => socket.off("data_changed", handler);
   }, [fetchCalls]);
 
+   const mapClientOption = (c) => ({
+     value: c.name || c.customer || "",
+     customer_id: c.id,
+     label: `${c.name || c.customer || ""}${c.company_name ? ` (${c.company_name})` : ""}`,
+     mobile_number: c.phone || c.mobile_number || "",
+     location_city: c.city || c.lead_city || c.location_city || c.address || "",
+     email: c.email || "",
+     gst_number: c.gst_number || "",
+     company_name: c.company_name || "",
+   });
+
+   const mapContractOption = (c) => ({
+     value: c.contract_title || "",
+     contract_id: c.id,
+     label: `${c.contract_title || "Untitled Contract"}${c.client_company ? ` - ${c.client_company}` : ""}`,
+     mobile_number: c.mobile_number || "",
+     location_city: c.location_city || "",
+     email: c.email || "",
+     invoice_value: c.amount_value || c.invoice_value || 0,
+     contract_type: c.contract_type || "",
+     client_company: c.client_company || "",
+   });
+
    const searchCustomers = useCallback(async (q = "") => {
      setCustomerLoading(true);
      try {
-       const res = await axios.get(`${API}/api/call-reports/customers`, { 
-         params: { q }, 
-         ...getAuthConfig() 
+       const res = await axios.get(`${API}/api/client/search`, {
+         params: { name: q },
+         ...getAuthConfig()
        });
-       setCustomerSearchResults(res.data.map(c => ({
-         value: c.customer,
-         customer_id: c.id,
-         label: `${c.customer}${c.company_name ? ` (${c.company_name})` : ""}`,
-         mobile_number: c.mobile_number || "",
-         location_city: c.location_city || "",
-         email: c.email || "",
-         gst_number: c.gst_number || "",
-         company_name: c.company_name || "",
-       })));
-     } catch (err) { 
+       setCustomerSearchResults((res.data || []).map(mapClientOption).filter(c => c.value));
+     } catch (err) {
        console.error(err);
-       // Fallback: if search param not supported, get all and filter client-side
        try {
-         const res = await axios.get(`${API}/api/call-reports/customers`, getAuthConfig());
-         const filtered = res.data.filter(c => 
-           c.customer.toLowerCase().includes(q.toLowerCase()) ||
-           (c.company_name && c.company_name.toLowerCase().includes(q.toLowerCase()))
-         );
-         setCustomerSearchResults(filtered.map(c => ({
-           value: c.customer,
-           customer_id: c.id,
-           label: `${c.customer}${c.company_name ? ` (${c.company_name})` : ""}`,
-           mobile_number: c.mobile_number || "",
-           location_city: c.location_city || "",
-           email: c.email || "",
-           gst_number: c.gst_number || "",
-           company_name: c.company_name || "",
-         })));
+         const res = await axios.get(`${API}/api/call-reports/customers`, {
+           params: { q },
+           ...getAuthConfig()
+         });
+         setCustomerSearchResults((res.data || []).map(mapClientOption).filter(c => c.value));
        } catch (fallbackErr) {
          console.error(fallbackErr);
          setCustomerSearchResults([]);
@@ -414,81 +416,51 @@ const CallReport = () => {
      finally { setCustomerLoading(false); }
    }, []);
 
-   const searchContracts = useCallback(async (type, searchTerm = "") => {
-     setContractLoading(true);
-     try {
-       const res = await axios.get(`${API}/api/call-reports/contracts/${type}`, { 
-         params: { q: searchTerm }, 
-         ...getAuthConfig() 
-       });
-       setContractSearchResults(res.data.map(c => ({
-         value: c.contract_title,
-         contract_id: c.id,
-         label: `${c.contract_title} - ${c.client_company}`,
-         mobile_number: c.mobile_number || "",
-         location_city: c.location_city || "",
-         email: c.email || "",
-         invoice_value: c.invoice_value || 0,
-       })));
-     } catch (err) { 
-       console.error(err);
-       // Fallback: if search param not supported, get all and filter client-side
-       try {
-         const res = await axios.get(`${API}/api/call-reports/contracts/${type}`, getAuthConfig());
-         const filtered = res.data.filter(c => 
-           c.contract_title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           (c.client_company && c.client_company.toLowerCase().includes(searchTerm.toLowerCase()))
-         );
-         setContractSearchResults(filtered.map(c => ({
-           value: c.contract_title,
-           contract_id: c.id,
-           label: `${c.contract_title} - ${c.client_company}`,
-           mobile_number: c.mobile_number || "",
-           location_city: c.location_city || "",
-           email: c.email || "",
-           invoice_value: c.invoice_value || 0,
-         })));
-       } catch (fallbackErr) {
-         console.error(fallbackErr);
-         setContractSearchResults([]);
-       }
-     }
-     finally { setContractLoading(false); }
-   }, []);
+   const searchContracts = useCallback(async (type, searchTerm = "", target = "edit") => {
+     const setLoadingState = target === "basic" ? setBasicContractLoading : setContractLoading;
+     const setResultsState = target === "basic" ? setBasicContractSearchResults : setContractSearchResults;
 
-  const searchBasicContracts = useCallback(async (type) => {
-    setBasicContractLoading(true);
-    try {
-      const res = await axios.get(`${API}/api/call-reports/contracts/${type}`, getAuthConfig());
-      setBasicContractSearchResults(res.data.map(c => ({
-        value: c.contract_title,
-        contract_id: c.id,
-        label: `${c.contract_title} - ${c.client_company}`,
-        mobile_number: c.mobile_number || "",
-        location_city: c.location_city || "",
-        email: c.email || "",
-        invoice_value: c.invoice_value || 0,
-      })));
-    } catch (err) { console.error(err); }
-    finally { setBasicContractLoading(false); }
-  }, []);
+     if (type !== "AMC" && type !== "ALC") {
+       setResultsState([]);
+       return;
+     }
+
+     setLoadingState(true);
+     try {
+       const res = await axios.get(`${API}/api/contract/with-usage`, getAuthConfig());
+       const q = searchTerm.trim().toLowerCase();
+       const filtered = (res.data || []).filter(c => {
+         const matchesType = c.contract_type === type;
+         const haystack = `${c.contract_title || ""} ${c.client_company || ""} ${c.mobile_number || ""} ${c.email || ""}`.toLowerCase();
+         return matchesType && (!q || haystack.includes(q));
+       });
+       setResultsState(filtered.map(mapContractOption));
+     } catch (err) {
+       console.error(err);
+       setResultsState([]);
+     }
+     finally { setLoadingState(false); }
+   }, []);
 
   const handleBasicCallTypeChange = (type) => {
     setBasicForm({ ...basicForm, call_type: type });
+    setBasicContractSearchResults([]);
+    setSelectedBasicContract(null);
     if (type === "AMC" || type === "ALC") {
-      searchBasicContracts(type);
-      setBasicContractSearchResults([]);
-      setSelectedBasicContract(null);
+      searchContracts(type, "", "basic");
     } else {
-      setBasicContractSearchResults([]);
-      setSelectedBasicContract(null);
+      setBasicForm(prev => ({
+        ...prev,
+        call_type: type,
+        customer_id: "",
+      }));
     }
   };
 
   const handleCallTypeChange = (type) => {
     setForm({ ...form, call_type: type });
     if (type === "AMC" || type === "ALC") {
-      searchContracts(type);
+      searchContracts(type, "", "edit");
     } else {
       setContractSearchResults([]);
       setSelectedContract(null);
@@ -501,8 +473,9 @@ const CallReport = () => {
       setSelectedContract(contract);
       setForm({
         ...form,
-        customer: contract.label,
+        customer: contract.client_company || contract.label,
         customer_id: contract.contract_id || "",
+        contract_title: contract.value || "",
         mobile_number: contract.mobile_number || "",
         email: contract.email || "",
         location_city: contract.location_city || "",
@@ -534,13 +507,14 @@ const CallReport = () => {
         ...prev,
         customer: customer.value,
         customer_id: customer.customer_id || "",
+        contract_title: "",
         mobile_number: customer.mobile_number || "",
         email: customer.email || "",
         location_city: customer.location_city || "",
       }));
       setSelectedBasicContract(null);
     } else {
-      setBasicForm((prev) => ({ ...prev, customer: customerVal }));
+      setBasicForm((prev) => ({ ...prev, customer: customerVal, contract_title: "" }));
       setSelectedBasicContract(null);
     }
   };
@@ -564,7 +538,7 @@ const CallReport = () => {
     setForm({
       customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", call_details: "",
       priority: "", call_referrer: "", status: "", call_type: "",
-      payment_type: "", invoice_value: "", payment_status: "", duration: "",
+      payment_type: "", invoice_value: "", payment_status: "", duration: "", contract_title: "",
     });
     setStep2Form({
       engineer: "", start_time: "", end_time: "", km: "",
@@ -596,6 +570,7 @@ const CallReport = () => {
       payment_type: call.payment_type || "",
       invoice_value: call.invoice_value || "",
       payment_status: call.payment_status || "",
+      contract_title: call.contract_title || "",
       duration: call.duration_limit ? (call.duration_limit == 60 ? "1hr" : call.duration_limit == 90 ? "1.5hr" : call.duration_limit == 120 ? "2hr" : "") : "",
     });
     setStep2Form({
@@ -740,7 +715,7 @@ const CallReport = () => {
 
    const openBasicForm = () => {
      setBasicForm({ customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
-       invoice_value: "", priority: "", call_referrer: "", status: "", payment_type: "", payment_status: "", gst_number: "", company_name: "" });
+       invoice_value: "", priority: "", call_referrer: "", status: "", payment_type: "", payment_status: "", gst_number: "", company_name: "", contract_title: "" });
      setSelectedBasicContract(null);
      setBasicContractSearchResults([]);
      setModalOpen(true);
@@ -754,8 +729,9 @@ const CallReport = () => {
       setSelectedBasicContract(contract);
       setBasicForm({
         ...basicForm,
-        customer: contract.label,
+        customer: contract.client_company || contract.label,
         customer_id: contract.contract_id || "",
+        contract_title: contract.value || "",
         mobile_number: contract.mobile_number || "",
         email: contract.email || "",
         location_city: contract.location_city || "",
@@ -785,6 +761,7 @@ const CallReport = () => {
         email: basicForm.email || "",
         location_city: basicForm.location_city || "",
         call_type: basicForm.call_type,
+        contract_title: basicForm.contract_title || "",
         call_details: basicForm.call_details,
         priority: basicForm.priority,
         call_referrer: basicForm.call_referrer,
@@ -1270,7 +1247,8 @@ const CallReport = () => {
                           type="text" 
                           value={basicForm.customer || ""} 
                           onChange={(e) => {
-                            setBasicForm({ ...basicForm, customer: e.target.value });
+                            setBasicForm({ ...basicForm, customer: e.target.value, customer_id: "", contract_title: "" });
+                            setSelectedBasicContract(null);
                             if (e.target.value.length >= 2) {
                               searchCustomers(e.target.value);
                             } else if (e.target.value.length === 0) {
@@ -1298,6 +1276,7 @@ const CallReport = () => {
                                     ...basicForm, 
                                     customer: customer.value,
                                     customer_id: customer.customer_id || "",
+                                    contract_title: "",
                                     mobile_number: customer.mobile_number || "",
                                     email: customer.email || "",
                                     location_city: customer.location_city || "",
@@ -1342,54 +1321,14 @@ const CallReport = () => {
       {(basicForm.call_type === "AMC" || basicForm.call_type === "ALC") && (
         <>
            <FormField label={`${basicForm.call_type} Contract`} icon={FileText}>
-             <div>
-               <input 
-                 type="text" 
-                 value={basicForm.customer || ""} 
-                          onChange={(e) => {
-                            setBasicForm({ ...basicForm, customer: e.target.value });
-                            if (e.target.value.length >= 2) {
-                              searchContracts(basicForm.call_type, e.target.value);
-                            } else if (e.target.value.length === 0) {
-                              setContractSearchResults([]);
-                              setSelectedContract(null);
-                            }
-                          }}
-                  onFocus={() => {
-                    // When clicked/focused, show all contracts for the selected call type (search with empty string)
-                    if (basicForm.call_type && (basicForm.call_type === "AMC" || basicForm.call_type === "ALC")) {
-                      searchContracts(basicForm.call_type, "");
-                    }
-                  }}
-                 placeholder={`Search ${basicForm.call_type} contract...`}
-                 className={inputBase}
-                 style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }}
-               />
-               {(contractSearchResults.length > 0 || (basicForm.call_type && (basicForm.call_type === "AMC" || basicForm.call_type === "ALC") && basicForm.customer.length > 0)) && (
-                 <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-card shadow-lg mt-1">
-                   {contractSearchResults.map((contract, idx) => (
-                     <div 
-                       key={idx} 
-                       className="px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-muted/50"
-                       onClick={() => {
-                         setBasicForm({ 
-                           ...basicForm, 
-                           customer: contract.label,
-                           customer_id: contract.contract_id || "",
-                           mobile_number: contract.mobile_number || "",
-                           email: contract.email || "",
-                           location_city: contract.location_city || "",
-                           invoice_value: contract.invoice_value || basicForm.invoice_value
-                         });
-                         setContractSearchResults([]);
-                       }}
-                     >
-                       {contract.label}
-                     </div>
-                   ))}
-                 </div>
-               )}
-             </div>
+             <SearchableSelect
+               options={basicContractSearchResults}
+               value={selectedBasicContract?.value || ""}
+               onChange={handleBasicContractSelect}
+               placeholder={`Search ${basicForm.call_type} contract...`}
+               onSearch={(q) => searchContracts(basicForm.call_type, q, "basic")}
+               loading={basicContractLoading}
+             />
            </FormField>
         </>
       )}
