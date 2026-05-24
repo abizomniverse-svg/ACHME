@@ -1240,60 +1240,78 @@ const CallReport = () => {
               <div className="space-y-5">
                 <SectionDivider icon={User} title="Customer Details" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="sm:col-span-2">
-                    <FormField label="Customer Name" required>
-                      <div className="relative">
-                        <input 
-                          type="text" 
-                          value={basicForm.customer || ""} 
-                          onChange={(e) => {
-                            setBasicForm({ ...basicForm, customer: e.target.value, customer_id: "", contract_title: "" });
-                            setSelectedBasicContract(null);
-                            if (e.target.value.length >= 2) {
-                              searchCustomers(e.target.value);
-                            } else if (e.target.value.length === 0) {
-                              setCustomerSearchResults([]);
-                            }
-                          }}
-                          onFocus={() => {
-                            // When clicked/focused, show all customers (search with empty string)
-                            if (basicForm.customer.length === 0) {
-                              searchCustomers("");
-                            }
-                          }}
-                          placeholder="Search customer..."
-                          className={inputBase}
-                          style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }}
-                        />
-                        {customerSearchResults.length > 0 && (
-                          <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-card shadow-lg mt-1">
-                            {customerSearchResults.map((customer, idx) => (
-                              <div 
-                                key={idx} 
-                                className="px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-muted/50"
-                                onClick={() => {
-                                  setBasicForm({ 
-                                    ...basicForm, 
-                                    customer: customer.value,
-                                    customer_id: customer.customer_id || "",
-                                    contract_title: "",
-                                    mobile_number: customer.mobile_number || "",
-                                    email: customer.email || "",
-                                    location_city: customer.location_city || "",
-                                    gst_number: customer.gst_number || "",
-                                    company_name: customer.company_name || ""
-                                  });
-                                  setCustomerSearchResults([]);
-                                }}
-                              >
-                                {customer.label}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </FormField>
-                  </div>
+                   <div className="sm:col-span-2">
+                     <FormField label="Customer Name" required>
+                       <div className="relative">
+                         <input 
+                           type="text" 
+                           value={basicForm.customer || ""} 
+                           onChange={(e) => {
+                             setBasicForm({ ...basicForm, customer: e.target.value, customer_id: "", contract_title: "" });
+                             setSelectedBasicContract(null);
+                             if (e.target.value.length >= 2) {
+                               searchCustomers(e.target.value);
+                             } else if (e.target.value.length === 0) {
+                               setCustomerSearchResults([]);
+                             }
+                           }}
+                           onKeyPress={(e) => {
+                             if (e.key === 'Enter' && customerSearchResults.length > 0) {
+                               // Select first result on Enter
+                               const firstCustomer = customerSearchResults[0];
+                               setBasicForm({ 
+                                 ...basicForm, 
+                                 customer: firstCustomer.value,
+                                 customer_id: firstCustomer.customer_id || "",
+                                 contract_title: "",
+                                 mobile_number: firstCustomer.mobile_number || "",
+                                 email: firstCustomer.email || "",
+                                 location_city: firstCustomer.location_city || "",
+                                 gst_number: firstCustomer.gst_number || "",
+                                 company_name: firstCustomer.company_name || ""
+                               });
+                               setCustomerSearchResults([]);
+                             }
+                           }}
+                           onFocus={() => {
+                             // When clicked/focused, show all customers (search with empty string)
+                             if (basicForm.customer.length === 0) {
+                               searchCustomers("");
+                             }
+                           }}
+                           placeholder="Search customer (type and press Enter)..."
+                           className={inputBase}
+                           style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }}
+                         />
+                         {customerSearchResults.length > 0 && (
+                           <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-card shadow-lg mt-1">
+                             {customerSearchResults.map((customer, idx) => (
+                               <div 
+                                 key={idx} 
+                                 className="px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-muted/50"
+                                 onClick={() => {
+                                   setBasicForm({ 
+                                     ...basicForm, 
+                                     customer: customer.value,
+                                     customer_id: customer.customer_id || "",
+                                     contract_title: "",
+                                     mobile_number: customer.mobile_number || "",
+                                     email: customer.email || "",
+                                     location_city: customer.location_city || "",
+                                     gst_number: customer.gst_number || "",
+                                     company_name: customer.company_name || ""
+                                   });
+                                   setCustomerSearchResults([]);
+                                 }}
+                               >
+                                 {customer.label}
+                               </div>
+                             ))}
+                           </div>
+                         )}
+                       </div>
+                     </FormField>
+                   </div>
                   <FormField label="Mobile Number" icon={PhoneIcon} required>
                     <input type="tel" value={basicForm.mobile_number} onChange={e => setBasicForm({ ...basicForm, mobile_number: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" required style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }} />
                   </FormField>
@@ -1318,20 +1336,58 @@ const CallReport = () => {
                       <option value="2hr">2 Hours</option>
                     </select>
                   </FormField>
-      {(basicForm.call_type === "AMC" || basicForm.call_type === "ALC") && (
-        <>
-           <FormField label={`${basicForm.call_type} Contract`} icon={FileText}>
-             <SearchableSelect
-               options={basicContractSearchResults}
-               value={selectedBasicContract?.value || ""}
-               onChange={handleBasicContractSelect}
-               placeholder={`Search ${basicForm.call_type} contract...`}
-               onSearch={(q) => searchContracts(basicForm.call_type, q, "basic")}
-               loading={basicContractLoading}
-             />
-           </FormField>
-        </>
-      )}
+       {(basicForm.call_type === "AMC" || basicForm.call_type === "ALC") && (
+         <>
+            <FormField label={`${basicForm.call_type} Contract`} icon={FileText}>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={selectedBasicContract?.label || ""} 
+                  onChange={(e) => {
+                    setBasicForm({ ...basicForm, call_type: basicForm.call_type });
+                    setSelectedBasicContract(null);
+                    if (e.target.value.length >= 2) {
+                      searchContracts(basicForm.call_type, e.target.value, "basic");
+                    } else if (e.target.value.length === 0) {
+                      setBasicContractSearchResults([]);
+                    }
+                  }}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && basicContractSearchResults.length > 0) {
+                      // Select first result on Enter
+                      const firstContract = basicContractSearchResults[0];
+                      handleBasicContractSelect(firstContract.value);
+                    }
+                  }}
+                  onFocus={() => {
+                    // When clicked/focused, show all contracts (search with empty string)
+                    if (selectedBasicContract?.label?.length === 0) {
+                      searchContracts(basicForm.call_type, "", "basic");
+                    }
+                  }}
+                  placeholder={`Search ${basicForm.call_type} contract (type and press Enter)...`}
+                  className={inputBase}
+                  style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }}
+                />
+                {basicContractSearchResults.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-card shadow-lg mt-1">
+                    {basicContractSearchResults.map((contract, idx) => (
+                      <div 
+                        key={idx} 
+                        className="px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-muted/50"
+                        onClick={() => {
+                          handleBasicContractSelect(contract.value);
+                        }}
+                      >
+                        {contract.label}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </FormField>
+         </>
+       )}
                   <FormField label="Priority" required icon={AlertTriangle}>
                     <SearchableSelect options={PRIORITY_OPTIONS} value={basicForm.priority} onChange={v => setBasicForm({ ...basicForm, priority: v })} placeholder="Select Priority" />
                   </FormField>
