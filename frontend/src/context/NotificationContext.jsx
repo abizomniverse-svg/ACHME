@@ -9,6 +9,12 @@ const NotificationContext = createContext();
 
 export const useNotifications = () => useContext(NotificationContext);
 
+const normalizeNotif = (n, source) => ({
+  ...n,
+  message: n.message || n.description || n.data?.message || "",
+  _source: source,
+});
+
 export const NotificationProvider = ({ children }) => {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
@@ -28,7 +34,7 @@ export const NotificationProvider = ({ children }) => {
         axios.get(`${API}/api/notifications?limit=50`, { headers }),
         axios.get(`${API}/api/notifications/unread-count`, { headers }),
       ]);
-      setNotifications(notifRes.data || []);
+      setNotifications((notifRes.data || []).map(n => normalizeNotif(n, "employee")));
       setUnreadCount(countRes.data?.count || 0);
 
       if (user.role === "admin") {
@@ -36,7 +42,7 @@ export const NotificationProvider = ({ children }) => {
           axios.get(`${API}/api/notifications/admin?limit=50`, { headers }),
           axios.get(`${API}/api/notifications/admin/unread-count`, { headers }),
         ]);
-        setAdminNotifications(adminRes.data || []);
+        setAdminNotifications((adminRes.data || []).map(n => normalizeNotif(n, "admin")));
         setAdminUnreadCount(adminCountRes.data?.count || 0);
       }
     } catch (err) {
@@ -68,12 +74,40 @@ export const NotificationProvider = ({ children }) => {
     // Listen for new notifications
     socket.on("new_notification", (notification) => {
       if (!["missed_reminder_alert", "target_completed"].includes(notification.type)) return;
-      // Role-based filtering: employees only see their own notifications
-      if (user.role === "employee" && notification.data?.user_id && notification.data.user_id !== user.id) {
-        return;
+
+      const normalized = normalizeNotif(notification, user.role === "admin" ? "admin" : "employee");
+
+      // Employees: only see their own notifications
+      if (user.role === "employee") {
+        if (notification.data?.user_id && notification.data.user_id !== user.id) return;
+        setNotifications(prev => {
+          const exists = prev.some(n => n.dbId === normalized.dbId || (n.id === normalized.id && n._source === "employee"));
+          if (exists) return prev;
+          return [normalized, ...prev].slice(0, 50);
+        });
+        setUnreadCount(prev => prev + 1);
       }
-      setNotifications(prev => [notification, ...prev].slice(0, 50));
-      setUnreadCount(prev => prev + 1);
+
+      // Admins: add to both employee and admin arrays (deduped)
+      if (user.role === "admin") {
+        // Admin notifications always land here (from admin_notifications room)
+        setAdminNotifications(prev => {
+          const exists = prev.some(n => n.dbId === normalized.dbId || (n.id === normalized.id && n._source === "admin"));
+          if (exists) return prev;
+          return [normalized, ...prev].slice(0, 50);
+        });
+        setAdminUnreadCount(prev => prev + 1);
+
+        // Also add to employee array if it targets a specific user
+        if (notification.data?.user_id) {
+          setNotifications(prev => {
+            const exists = prev.some(n => n.dbId === normalized.dbId || (n.id === normalized.id && n._source === "employee"));
+            if (exists) return prev;
+            return [normalized, ...prev].slice(0, 50);
+          });
+          setUnreadCount(prev => prev + 1);
+        }
+      }
 
       // Show browser push notification for key types
       const pushTypes = ["missed_reminder_alert", "target_completed"];
@@ -87,32 +121,6 @@ export const NotificationProvider = ({ children }) => {
         });
       }
     });
-
-    // Admin-specific notifications
-    if (user.role === "admin") {
-      socket.on("new_notification", (notification) => {
-        if (!["missed_reminder_alert", "target_completed"].includes(notification.type)) return;
-        // Check if it's already in adminNotifications
-        setAdminNotifications(prev => {
-          const exists = prev.some(n => n.dbId === notification.dbId || n.id === notification.id);
-          if (exists) return prev;
-          return [notification, ...prev].slice(0, 50);
-        });
-        setAdminUnreadCount(prev => prev + 1);
-
-        // Show browser push notification for key types
-        const pushTypes = ["missed_reminder_alert", "target_completed"];
-        if (pushTypes.includes(notification.type) && isPushSupported() && Notification.permission === "granted") {
-          const title = notification.data?.title || getPushTitle(notification.type);
-          const body = notification.data?.message || notification.message || "";
-          showPushNotification(title, {
-            body: body.substring(0, 100),
-            tag: notification.type,
-            onClick: () => { window.focus(); window.location.href = "/dashboard/notifications"; }
-          });
-        }
-      });
-    }
 
     socket.on("notification_read", ({ notificationId }) => {
       setNotifications(prev => prev.map(n => n.dbId === notificationId || n.id === notificationId ? { ...n, is_read: 1 } : n));
@@ -143,11 +151,13 @@ export const NotificationProvider = ({ children }) => {
   }, []);
 
   const markAllAsRead = useCallback(async () => {
-    notifications.forEach(n => {
+    [...notifications, ...adminNotifications].forEach(n => {
       if (!n.is_read) socket.emit("mark_read", n.dbId || n.id);
     });
     setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
+    setAdminNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
     setUnreadCount(0);
+    setAdminUnreadCount(0);
 
     const token = localStorage.getItem("token");
     if (token) {
@@ -157,7 +167,7 @@ export const NotificationProvider = ({ children }) => {
         });
       } catch (e) { /* non-critical */ }
     }
-  }, [notifications]);
+  }, [notifications, adminNotifications]);
 
   const markAdminAsRead = useCallback(async (notificationId) => {
     setAdminNotifications(prev => prev.map(n => (n.dbId === notificationId || n.id === notificationId) ? { ...n, is_read: 1 } : n));

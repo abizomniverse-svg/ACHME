@@ -292,7 +292,7 @@ router.get("/history", verifyToken, (req, res) => {
   const limit = parseInt(months) || 12;
 
   db.query(
-    `SELECT a.month_year, a.achieved_amount,
+    `SELECT a.month_year, a.achieved_amount, a.achieved_count,
       (SELECT monthly_target FROM task_targets WHERE id = a.target_id) as monthly_target
     FROM task_achievements a
     WHERE a.user_name = ?
@@ -301,7 +301,21 @@ router.get("/history", verifyToken, (req, res) => {
     [user_name, limit],
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
+
+      db.query("SELECT id, amount, description, month_year, created_at FROM task_updates WHERE user_name = ? ORDER BY created_at DESC LIMIT 100",
+        [user_name],
+        (err2, submissionRows) => {
+          const submissions = submissionRows ? submissionRows.map(s => ({
+            id: s.id,
+            amount: s.amount,
+            description: s.description || "",
+            month_year: s.month_year,
+            created_at: s.created_at
+          })) : [];
+
+          res.json({ monthly: rows, submissions });
+        }
+      );
     }
   );
 });

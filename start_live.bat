@@ -98,7 +98,7 @@ if errorlevel 1 (
   if errorlevel 1 goto fail
 )
 node --version
-npm --version
+call npm --version
 exit /b 0
 
 :ensure_mysql

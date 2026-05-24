@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import ClientSearchDropdown from "../components/ClientSearchDropdown";
 import "../Styles/tailwind.css";
 import { Search, Plus, X, TrendingUp, DollarSign, Wrench, FileText, RefreshCw, Link as LinkIcon } from "lucide-react";
 import axios from "axios";
@@ -14,133 +15,94 @@ const AMCService = () => {
   const userRole = getUserRole();
   const canEditDelete = userRole === "admin" || userRole === "subadmin";
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const [services, setServices] = useState([]);
-  const [contracts, setContracts] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isEdit, setIsEdit] = useState(false);
-  const [selectedServiceId, setSelectedServiceId] = useState(null);
-  const [selectedContractId, setSelectedContractId] = useState(null);
-  const [activeTab, setActiveTab] = useState("contracts");
+   const [open, setOpen] = useState(false);
+   const [services, setServices] = useState([]);
+   const [contracts, setContracts] = useState([]);
+   const [searchTerm, setSearchTerm] = useState("");
+   const [isEdit, setIsEdit] = useState(false);
+   const [selectedServiceId, setSelectedServiceId] = useState(null);
+   const [selectedContractId, setSelectedContractId] = useState(null);
+   const [activeTab, setActiveTab] = useState("contracts");
 
-  // Contract Modal
-  const [contractModalOpen, setContractModalOpen] = useState(false);
-  const [contractForm, setContractForm] = useState({
-    contract_title: "",
-    client_company: "",
-    mobile_number: "",
-    email: "",
-    location_city: "",
-    service_type: "None",
-    amount_value: "",
-    start_date: new Date().toISOString().slice(0, 10),
-    end_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().slice(0, 10)
-  });
-  const [selectedClient, setSelectedClient] = useState("");
-  const [showOtherClient, setShowOtherClient] = useState(false);
+   // Contract Modal
+    const [contractModalOpen, setContractModalOpen] = useState(false);
+    const [contractForm, setContractForm] = useState({
+      contract_title: "",
+      client_company: "",
+      mobile_number: "",
+      email: "",
+      location_city: "",
+      service_type: "None",
+      amount_value: "",
+      start_date: new Date().toISOString().slice(0, 10),
+      end_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().slice(0, 10)
+    });
 
-  const [contractSearch, setContractSearch] = useState("");
-  const [contractList, setContractList] = useState([]);
-  const [showContractDropdown, setShowContractDropdown] = useState(false);
-  const [selectedContract, setSelectedContract] = useState(null);
-  const [contractUsage, setContractUsage] = useState(null);
-  const [serviceFilterContract, setServiceFilterContract] = useState("");
-
-  const [form, setForm] = useState({
-    contract_id: "",
-    contract_title: "",
-    service_type: "AMC",
-    customer_name: "",
-    mobile_number: "",
-    email: "",
-    location_city: "",
-    service_date: new Date().toISOString().slice(0, 10),
-    start_time: "",
-    end_time: "",
-    km: "",
-    technician: "",
-    sales_person: "",
-    service_person: "",
-    description: "",
-    remarks: "",
-    petrol_charges: "",
-    spare_parts_price: "",
-    labour_charges: "",
-    total_expenses: "",
-    status: "Completed",
-    next_service_date: ""
-  });
+    const [form, setForm] = useState({
+      contract_id: "",
+      contract_title: "",
+      service_type: "AMC",
+      customer_name: "",
+      mobile_number: "",
+      email: "",
+      location_city: "",
+      service_date: new Date().toISOString().slice(0, 10),
+      start_time: "",
+      end_time: "",
+      km: "",
+      technician: "",
+      sales_person: "",
+      service_person: "",
+      description: "",
+      remarks: "",
+      petrol_charges: "",
+      spare_parts_price: "",
+      labour_charges: "",
+      total_expenses: "",
+      status: "Completed",
+      next_service_date: ""
+    });
 
 const fetchServices = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API}/api/amc/amc-alc`, getAuthConfig());
-      setServices(res.data);
-    } catch (err) {
-      console.error("Fetch services error:", err);
-    }
-  }, []);
+  try {
+    const res = await axios.get(`${API}/api/amc/amc-alc`, getAuthConfig());
+    setServices(res.data);
+  } catch (err) {
+    console.error("Fetch services error:", err);
+  }
+}, []);
 
-  const fetchContracts = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API}/api/contract/with-usage`, getAuthConfig());
-      setContracts(res.data);
-    } catch (err) {
-      console.error("Fetch contracts error:", err);
-    }
-  }, []);
+const fetchContracts = useCallback(async () => {
+  try {
+    const res = await axios.get(`${API}/api/contract/with-usage`, getAuthConfig());
+    setContracts(res.data);
+  } catch (err) {
+    console.error("Fetch contracts error:", err);
+  }
+}, []);
 
-  const fetchClients = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API}/api/client`, getAuthConfig());
-      setClients(res.data);
-    } catch (err) {
-      console.error("Fetch clients error:", err);
-    }
-  }, []);
+    useEffect(() => {
+      fetchServices();
+      fetchContracts();
+    }, [fetchServices, fetchContracts]);
 
-  useEffect(() => {
-    fetchServices();
-    fetchContracts();
-    fetchClients();
-  }, [fetchServices, fetchContracts, fetchClients]);
+    // Contract search and dropdown state
+    const [contractSearch, setContractSearch] = useState("");
+    const [contractList, setContractList] = useState([]);
+    const [showContractDropdown, setShowContractDropdown] = useState(false);
+    const [selectedContract, setSelectedContract] = useState(null);
+    const [contractUsage, setContractUsage] = useState(null);
+    const [serviceFilterContract, setServiceFilterContract] = useState("");
+    const [selectedClient, setSelectedClient] = useState("");
+    const [showOtherClient, setShowOtherClient] = useState(false);
 
-  // Contract form handlers
+    // Contract form handlers
   const handleContractChange = (e) => {
     const { name, value } = e.target;
     setContractForm({ ...contractForm, [name]: value });
   };
 
-  // Handle client selection from dropdown
-  const handleClientSelect = (e) => {
-    const value = e.target.value;
-    setSelectedClient(value);
-    
-    if (value === "other") {
-      setShowOtherClient(true);
-      setContractForm(prev => ({
-        ...prev,
-        client_company: "",
-        mobile_number: "",
-        email: "",
-        location_city: ""
-      }));
-    } else if (value) {
-      setShowOtherClient(false);
-      const client = clients.find(c => c.id.toString() === value);
-      if (client) {
-        setContractForm(prev => ({
-          ...prev,
-          client_company: client.name || "",
-          mobile_number: client.phone || "",
-          email: client.email || "",
-          location_city: client.address || ""
-        }));
-      }
-    } else {
-      setShowOtherClient(false);
-    }
-  };
+
 
   const saveContract = async (e) => {
     e.preventDefault();
@@ -977,33 +939,40 @@ const fetchServices = useCallback(async () => {
                   <label className="text-sm font-medium text-gray-600">Contract Title <span className="text-red-500">*</span></label>
                   <input type="text" name="contract_title" value={contractForm.contract_title} onChange={handleContractChange} className="w-full border rounded-lg p-2 mt-1" placeholder="e.g. AMC Contract 2024" required />
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-600">Client Company <span className="text-red-500">*</span></label>
-                  <select 
-                    value={selectedClient} 
-                    onChange={handleClientSelect}
-                    className="w-full border rounded-lg p-2 mt-1 bg-white"
-                  >
-                    <option value="">-- Select Client --</option>
-                    {clients.map(client => (
-                      <option key={client.id} value={client.id}>
-                        {client.name} {client.phone ? `(${client.phone})` : ""}
-                      </option>
-                    ))}
-                    <option value="other">+ Other (Type manually)</option>
-                  </select>
-                  {(showOtherClient || (!selectedClient && contractForm.client_company)) && (
-                    <input 
-                      type="text" 
-                      name="client_company" 
-                      value={contractForm.client_company} 
-                      onChange={handleContractChange} 
-                      className="w-full border rounded-lg p-2 mt-2" 
-                      placeholder="Enter client name manually"
-                      required 
-                    />
-                  )}
-                </div>
+                 <div>
+                   <label className="text-sm font-medium text-gray-600">Client Company <span className="text-red-500">*</span></label>
+                   <ClientSearchDropdown 
+                     value={selectedClient}
+                     onSelect={(client) => {
+                       if (client.name === "") {
+                         // Clear selection
+                         setSelectedClient("");
+                         setShowOtherClient(false);
+                         setContractForm(prev => ({
+                           ...prev,
+                           client_company: "",
+                           mobile_number: "",
+                           email: "",
+                           location_city: ""
+                         }));
+                       } else {
+                         // Select client
+                         setSelectedClient(client.id.toString());
+                         setShowOtherClient(false);
+                         setContractForm(prev => ({
+                           ...prev,
+                           client_company: client.name || "",
+                           mobile_number: client.phone || "",
+                           email: client.email || "",
+                           location_city: client.city || ""
+                         }));
+                       }
+                     }}
+                     placeholder="Search client name, company, phone or email..."
+                     required
+                     className="w-full"
+                   />
+                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>

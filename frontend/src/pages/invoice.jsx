@@ -254,7 +254,7 @@ const Invoice = () => {
         </div>
       )}
 
-      <div className="bg-white shadow rounded-xl overflow-hidden mt-6">
+      <div className="bg-white shadow rounded-xl overflow-x-auto mt-6">
         <table className="w-full text-sm text-left border-collapse">
           <thead className="bg-gray-50">
             <tr className="text-gray-600 uppercase text-xs border-b">

@@ -61,12 +61,13 @@ function initNotificationsSocket(io, corsOrigin = "*") {
     const emitToEmployee = () => {
       if (!targetUserId) return;
 
+      const relatedId = data.taskId || data.leadId || data.targetId || data.id || null;
+
       db.query(
         "INSERT INTO notifications (task_id, user_id, type, title, description) VALUES (?, ?, ?, ?, ?)",
-        [data.taskId || data.id || null, targetUserId, type, data.title || type, message],
+        [relatedId, targetUserId, type, data.title || type, message],
         (err, result) => {
           if (err) {
-            console.warn("employee notification insert skipped:", err.message);
             if (shouldEmit) notificationIO.to(`notifications:${targetUserId}`).emit("new_notification", notification);
             return;
           }
@@ -86,12 +87,13 @@ function initNotificationsSocket(io, corsOrigin = "*") {
       return;
     }
 
+    const relatedId = data.taskId || data.leadId || data.targetId || data.id || null;
+
     db.query(
-      "INSERT INTO admin_notifications (type, message, related_id, related_type, created_by, priority) VALUES (?, ?, ?, ?, ?, ?)",
-      [type, message, data.id || data.taskId || data.leadId || null, data.type || null, data.userId || null, priority],
+      "INSERT INTO admin_notifications (type, message, user_id, related_id, related_type, created_by, priority) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [type, message, data.userId || null, relatedId, data.type || null, data.userId || null, priority],
       (err, result) => {
         if (err) {
-          console.warn("admin notification insert skipped:", err.message);
           return emitToEmployee();
         }
 

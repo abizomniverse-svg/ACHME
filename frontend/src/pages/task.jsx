@@ -4,7 +4,7 @@ import "../Styles/tailwind.css";
 import axios from "axios";
 import { useAuth } from "../auth/AuthContext";
 import { useNotifications } from "../context/NotificationContext";
-import socket from "../socket/socket";
+import socket, { notificationSocket } from "../socket/socket";
 import { API } from "../config/api";
 
 // ─── Design tokens (Notion) ───────────────────────────────────────────────────
@@ -139,6 +139,7 @@ const Task = () => {
   const [tasks, setTasks] = useState([]);
   const [taskTargets, setTaskTargets] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [achievements, setAchievements] = useState([]);
   const [activeTab, setActiveTab] = useState("tasks");
   const [lastUpdate, setLastUpdate] = useState(null);
 
@@ -236,11 +237,79 @@ const Task = () => {
     const refresh = () => { fetchAll(); refreshNotifications(); };
     socket.on("task_updated", refresh); socket.on("new_task", refresh);
     socket.on("target_updated", refresh); socket.on("new_target", refresh);
+    
     return () => {
       socket.off("task_updated", refresh); socket.off("new_task", refresh);
       socket.off("target_updated", refresh); socket.off("new_target", refresh);
     };
   }, []);
+
+  useEffect(() => {
+    if (!notificationSocket) return;
+
+    // Listen for real-time employee achievements (admin only)
+    notificationSocket.on("employee_achievement", (data) => {
+      if (isAdmin) {
+        setAchievements(prev => {
+          const existing = prev.findIndex(a => a.id === data.id);
+          if (existing >= 0) {
+            const updated = [...prev];
+            updated[existing] = { ...updated[existing], ...data };
+            return updated;
+          }
+          return [data, ...prev];
+        });
+      }
+    });
+
+    // Listen for achievement recorded (employee side)
+    notificationSocket.on("achievement_recorded", (data) => {
+      if (!isAdmin) {
+        // Refresh employee's target card
+        fetchAll();
+      }
+    });
+
+    // Listen for target data changes
+    notificationSocket.on("target_data_changed", (data) => {
+      fetchAll();
+      refreshNotifications();
+    });
+
+    // Listen for target updated data (for admin dashboard)
+    notificationSocket.on("target_updated_data", (data) => {
+      if (isAdmin) {
+        setTaskTargets(prev => prev.map(target =>
+          target.id === data.target_id
+            ? {
+              ...target,
+              achieved_amount: data.monthly_achieved,
+              ytd_amount: data.yearly_achieved,
+              current_percentage: data.monthly_percentage,
+              yearly_percentage: data.yearly_percentage,
+              updated_at: data.timestamp
+            }
+            : target
+        ));
+      }
+    });
+
+    // Global data changed event
+    notificationSocket.on("data_changed", (data) => {
+      if (data.type === "target_achievement") {
+        fetchAll();
+        refreshNotifications();
+      }
+    });
+
+    return () => {
+      notificationSocket.off("employee_achievement");
+      notificationSocket.off("achievement_recorded");
+      notificationSocket.off("target_data_changed");
+      notificationSocket.off("target_updated_data");
+      notificationSocket.off("data_changed");
+    };
+  }, [isAdmin]);
 
   // ── Derived data ───────────────────────────────────────────────────────────
   // Backend already filters tasks for employees, so just use the returned data
@@ -393,7 +462,7 @@ const Task = () => {
 
       {/* Top-level tabs */}
       <div className="flex gap-2 mb-6 flex-wrap">
-        {[["tasks", "Active Tasks"], ["history", "Task History"], ["targets", "Targets"], ["targetHistory", "Target History"]].map(([key, label]) => (
+        {[["tasks", "Active Tasks"], ["history", "Task History"], ["targets", "Targets"], ["targetHistory", "Target History"], ...(isAdmin ? [["achievements", "Employee Achievements"]] : [])].map(([key, label]) => (
           <PillTab key={key} active={activeTab === key} onClick={() => setActiveTab(key)}>{label}</PillTab>
         ))}
         {lastUpdate && (
@@ -1011,78 +1080,112 @@ const Task = () => {
             </>
           )}
           {isAdmin && targetHistEmployee && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <button onClick={() => { setTargetHistEmployee(null); setTHistFilter("all"); setTHistSearch(""); setTHistStatusFilter("all"); }}
-                  className="flex items-center gap-1 text-sm font-medium cursor-pointer" style={{ color: N.primary }}>
-                  <ChevronLeft size={16} /> Back
-                </button>
-                <h3 className="text-base font-semibold" style={{ color: N.ink }}>{targetHistEmployee} — Target History</h3>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <DateFilterBar filter={tHistFilter} setFilter={setTHistFilter}
-                  customFrom={tHistCustomFrom} setCustomFrom={setTHistCustomFrom}
-                  customTo={tHistCustomTo} setCustomTo={setTHistCustomTo} showCustom />
-                <div className="ml-auto flex items-center gap-2">
-                  <select value={tHistStatusFilter} onChange={e => setTHistStatusFilter(e.target.value)}
-                    className="border rounded-lg px-3 py-2 text-sm bg-white" style={{ borderColor: N.hairline, color: N.ink }}>
-                    <option value="all">All Status</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Process">Process</option>
-                    <option value="New">New</option>
-                  </select>
-                </div>
-              </div>
-              <div className="rounded-xl border overflow-hidden" style={{ background: N.canvas, borderColor: N.hairline }}>
+            <AdminTargetDrillDown
+              employeeName={targetHistEmployee}
+              history={drillTargetHistory}
+              tHistFilter={tHistFilter}
+              onBack={() => { setTargetHistEmployee(null); setTHistFilter("all"); setTHistSearch(""); setTHistStatusFilter("all"); }}
+              tHistCustomFrom={tHistCustomFrom} tHistCustomTo={tHistCustomTo}
+              onFilterChange={setTHistFilter}
+              onCustomFromChange={setTHistCustomFrom}
+              onCustomToChange={setTHistCustomTo}
+              tHistStatusFilter={tHistStatusFilter}
+              onStatusFilterChange={setTHistStatusFilter}
+            />
+          )}
+          {isEmployee && (
+            <EmployeeTargetCard user={user} onUpdateAchievement={handleAchievementUpdate} />
+          )}
+        </div>
+      )}
+
+      {/* ── EMPLOYEE ACHIEVEMENTS (ADMIN ONLY) ──────────────────────────── */}
+      {activeTab === "achievements" && isAdmin && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-3 items-center">
+            <h3 className="text-lg font-semibold" style={{ color: N.ink }}>Real-Time Employee Achievements</h3>
+            <span className="text-xs px-2 py-1 rounded-full" style={{ background: N.lavender, color: N.primary }}>
+              {achievements.length} achievements
+            </span>
+          </div>
+
+          {achievements.length === 0 ? (
+            <div className="rounded-xl border p-8 text-center" style={{ background: N.surface, borderColor: N.hairline }}>
+              <p style={{ color: N.stone }}>No achievements recorded yet. Employees' achievements will appear here in real-time.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border overflow-hidden" style={{ background: N.canvas, borderColor: N.hairline }}>
+              <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead style={{ background: N.surface }}>
                     <tr>
-                      {["Month", "Target", "Carry Fwd", "Effective", "Achieved", "Balance", "Status"].map(h => (
+                      {["Employee", "Amount", "Description", "Monthly %", "YTD %", "YTD Total", "Status", "Time"].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: N.steel }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {(() => {
-                      let filtered = applyDateFilter(drillTargetHistory, "month_year", tHistFilter, tHistCustomFrom, tHistCustomTo);
-                      if (tHistStatusFilter !== "all") {
-                        filtered = filtered.filter(h => {
-                          const eff = parseFloat(h.effective_target) || parseFloat(h.monthly_target);
-                          const pct = eff > 0 ? Math.round((h.achieved_amount / eff) * 100) : 0;
-                          const status = pct >= 100 ? "Completed" : pct >= 50 ? "Process" : "New";
-                          return status === tHistStatusFilter;
-                        });
-                      }
-                      return filtered.map(h => {
-                        const eff = parseFloat(h.effective_target) || parseFloat(h.monthly_target);
-                        const balance = Math.max(0, eff - h.achieved_amount);
-                        const pct = eff > 0 ? Math.round((h.achieved_amount / eff) * 100) : 0;
-                        return (
-                          <tr key={h.month_year} className="border-t" style={{ borderColor: N.hairline }}>
-                            <td className="px-4 py-3" style={{ color: N.charcoal }}>{h.month_year}</td>
-                            <td className="px-4 py-3" style={{ color: N.charcoal }}>₹{(parseFloat(h.monthly_target) || 0).toLocaleString()}</td>
-                            <td className="px-4 py-3" style={{ color: N.orange }}>₹{(parseFloat(h.carry_forward) || 0).toLocaleString()}</td>
-                            <td className="px-4 py-3" style={{ color: N.primary }}>₹{eff.toLocaleString()}</td>
-                            <td className="px-4 py-3" style={{ color: N.green }}>₹{(parseFloat(h.achieved_amount) || 0).toLocaleString()}</td>
-                            <td className="px-4 py-3" style={{ color: balance === 0 ? N.green : N.error }}>₹{balance.toLocaleString()}</td>
-                            <td className="px-4 py-3">
-                              <StatusBadge status={pct >= 100 ? "Completed" : pct >= 50 ? "Process" : "New"} />
-                            </td>
-                          </tr>
-                        );
-                      });
-                    })()}
-                    {drillTargetHistory.length === 0 && (
-                      <tr><td colSpan={7} className="py-10 text-center text-sm" style={{ color: N.stone }}>No history records.</td></tr>
-                    )}
+                    {achievements.map((ach, idx) => {
+                      const statusColor = ach.is_target_completed ? N.green : 
+                                        ach.monthly_percentage >= 50 ? N.orange : N.error;
+                      const statusLabel = ach.is_target_completed ? "Target Completed ✓" : 
+                                        ach.monthly_percentage >= 50 ? "In Progress" : "Started";
+                      return (
+                        <tr key={`${ach.id}-${idx}`} className="border-t hover:bg-gray-50 transition-colors" style={{ borderColor: N.hairline }}>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: N.lavender, color: N.primary }}>
+                                {ach.employee_name?.charAt(0).toUpperCase()}
+                              </div>
+                              <span className="font-medium" style={{ color: N.ink }}>{ach.employee_name}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 font-semibold" style={{ color: N.green }}>₹{Number(ach.amount).toLocaleString()}</td>
+                          <td className="px-4 py-3 text-xs" style={{ color: N.slate }}>{ach.description}</td>
+                          <td className="px-4 py-3">
+                            <span className="text-sm font-semibold" style={{ color: ach.monthly_percentage >= 100 ? N.green : ach.monthly_percentage >= 50 ? N.orange : N.error }}>
+                              {ach.monthly_percentage}%
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-sm font-semibold" style={{ color: ach.yearly_percentage >= 100 ? N.green : ach.yearly_percentage >= 50 ? N.orange : N.error }}>
+                              {ach.yearly_percentage}%
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-semibold" style={{ color: N.primary }}>₹{Number(ach.ytd_amount).toLocaleString()}</td>
+                          <td className="px-4 py-3">
+                            <span className="px-2 py-1 rounded-full text-xs font-semibold" style={{ background: ach.is_target_completed ? N.mint : ach.monthly_percentage >= 50 ? N.peach : "#fde0ec", color: statusColor }}>
+                              {statusLabel}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs" style={{ color: N.steel }}>
+                            {new Date(ach.timestamp).toLocaleTimeString('en-IN')}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
-          {isEmployee && (
-            <EmployeeTargetCard user={user} onUpdateAchievement={handleAchievementUpdate} />
-          )}
+
+          {/* Summary Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: "Total Achievements", count: achievements.length, bg: N.lavender, color: N.primary },
+              { label: "Target Completed", count: achievements.filter(a => a.is_target_completed).length, bg: N.mint, color: N.green },
+              { label: "Total YTD Achieved", amount: achievements.reduce((sum, a) => sum + (Number(a.ytd_amount) || 0), 0), bg: N.sky, color: "#0075de" },
+              { label: "This Period Added", amount: achievements.reduce((sum, a) => sum + (Number(a.amount) || 0), 0), bg: N.peach, color: N.orange },
+            ].map((stat, idx) => (
+              <div key={idx} className="rounded-xl p-4 border" style={{ background: stat.bg, borderColor: "transparent" }}>
+                <p className="text-xs font-medium" style={{ color: stat.color }}>{stat.label}</p>
+                <p className="text-2xl font-bold mt-2" style={{ color: stat.color }}>
+                  {stat.count !== undefined ? stat.count : `₹${Number(stat.amount).toLocaleString()}`}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1132,6 +1235,8 @@ const EmployeeTargetCard = ({ user, onUpdateAchievement }) => {
   const [desc, setDesc] = useState("");
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
 
   const fetch = async () => {
     try {
@@ -1153,12 +1258,27 @@ const EmployeeTargetCard = ({ user, onUpdateAchievement }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!amount || parseFloat(amount) <= 0) return alert("Enter a valid amount");
-    const result = await onUpdateAchievement(parseFloat(amount), desc || "Achievement update");
-    if (result) {
-      setAmount(""); setDesc("");
-      setShowForm(false);
-      await fetch();
+    if (!amount || parseFloat(amount) <= 0) {
+      alert("Please enter a valid amount");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await onUpdateAchievement(parseFloat(amount), desc || "Achievement update");
+      if (result) {
+        setSuccessMsg(`✓ ₹${parseFloat(amount).toLocaleString()} added successfully!`);
+        setAmount("");
+        setDesc("");
+        setTimeout(() => {
+          setShowForm(false);
+          setSuccessMsg("");
+        }, 2000);
+        await fetch();
+      }
+    } catch (err) {
+      alert("Failed to add achievement");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -1182,95 +1302,169 @@ const EmployeeTargetCard = ({ user, onUpdateAchievement }) => {
   const yrBalance = Math.max(0, yearlyTarget - ytdAch);
   const yrPct = yearlyTarget > 0 ? Math.round((ytdAch / yearlyTarget) * 100) : 0;
 
+  // Preview calculations for real-time feedback
+  const previewAmount = parseFloat(amount) || 0;
+  const previewNewYtd = ytdAch + previewAmount;
+  const previewNewBalance = Math.max(0, yearlyTarget - previewNewYtd);
+  const previewNewPct = yearlyTarget > 0 ? Math.round((previewNewYtd / yearlyTarget) * 100) : 0;
+  const showPreview = amount && previewAmount > 0;
+
   return (
     <div className="space-y-3">
-      {/* Main Target Card - Full Width Horizontal Layout */}
-      <div className="rounded-xl border p-5 w-full" style={{ background: N.canvas, borderColor: N.hairline }}>
-        <div className="flex flex-col md:flex-row md:items-center gap-4">
-          {/* Left: Target Info */}
-          <div className="flex items-center gap-3 md:w-1/5">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: N.lavender }}>
-              <TargetIcon size={18} style={{ color: N.primary }} />
+      {/* Main Target Card - Full Width Responsive Layout */}
+      <div className="rounded-xl border p-4 md:p-5 w-full transition-all duration-300" style={{ background: N.canvas, borderColor: N.hairline }}>
+        <div className="flex flex-col gap-4">
+          {/* Top Row: Target Info */}
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: N.lavender }}>
+              <TargetIcon size={16} style={{ color: N.primary }} />
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-xs font-medium" style={{ color: N.steel }}>Yearly Target</p>
-              <p className="text-lg font-bold" style={{ color: N.ink }}>₹{yearlyTarget.toLocaleString()}</p>
-              <p className="text-[10px]" style={{ color: N.steel }}>Monthly: ₹{monthly.toLocaleString()}</p>
-              {carry > 0 && (
-                <p className="text-[10px]" style={{ color: N.orange }}>Carry: ₹{carry.toLocaleString()}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Middle: Stats */}
-          <div className="flex-1 grid grid-cols-4 gap-3">
-            <div className="text-center">
-              <p className="text-xs" style={{ color: N.steel }}>YTD Achieved</p>
-              <p className="text-sm font-bold" style={{ color: N.green }}>₹{ytdAch.toLocaleString()}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs" style={{ color: N.steel }}>Yearly Balance</p>
-              <p className="text-sm font-bold" style={{ color: yrBalance === 0 ? N.green : N.error }}>₹{yrBalance.toLocaleString()}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs" style={{ color: N.steel }}>This Month</p>
-              <p className="text-sm font-bold" style={{ color: N.primary }}>₹{achieved.toLocaleString()}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs" style={{ color: N.steel }}>Progress</p>
-              <p className="text-sm font-bold" style={{ color: yrPct >= 100 ? N.green : yrPct >= 50 ? N.orange : N.error }}>{yrPct}%</p>
-            </div>
-          </div>
-
-          {/* Right: Progress Bar + Action */}
-          <div className="md:w-1/5 space-y-2">
-            <p className="text-[10px] font-medium" style={{ color: N.steel }}>Yearly Progress</p>
-            <div className="w-full rounded-full h-2" style={{ background: N.hairline }}>
-              <div className="h-2 rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(yrPct, 100)}%`, background: yrPct >= 100 ? N.green : yrPct >= 50 ? N.orange : N.error }} />
+              <p className="text-lg md:text-xl font-bold" style={{ color: N.ink }}>₹{yearlyTarget.toLocaleString()}</p>
+              <div className="text-[10px] flex gap-2 flex-wrap" style={{ color: N.steel }}>
+                <span>Monthly: ₹{monthly.toLocaleString()}</span>
+                {carry > 0 && <span style={{ color: N.orange }}>Carry: ₹{carry.toLocaleString()}</span>}
+              </div>
             </div>
             <button onClick={() => setShowForm(!showForm)}
-              className="w-full px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all hover:shadow-md"
+              className="px-3 md:px-4 py-2 rounded-lg text-xs md:text-sm font-semibold cursor-pointer transition-all hover:shadow-md whitespace-nowrap"
               style={{ background: N.primary, color: "#fff" }}>
               {showForm ? "Cancel" : "Add Achievement"}
             </button>
           </div>
+
+          {/* Stats Grid - Responsive */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+            <div className="rounded-lg p-3 text-center" style={{ background: N.surface }}>
+              <p className="text-xs" style={{ color: N.steel }}>YTD Achieved</p>
+              <p className="text-lg md:text-xl font-bold mt-1" style={{ color: N.green }}>₹{ytdAch.toLocaleString()}</p>
+            </div>
+            <div className="rounded-lg p-3 text-center" style={{ background: N.surface }}>
+              <p className="text-xs" style={{ color: N.steel }}>Balance</p>
+              <p className="text-lg md:text-xl font-bold mt-1" style={{ color: yrBalance === 0 ? N.green : N.error }}>₹{yrBalance.toLocaleString()}</p>
+            </div>
+            <div className="rounded-lg p-3 text-center" style={{ background: N.surface }}>
+              <p className="text-xs" style={{ color: N.steel }}>This Month</p>
+              <p className="text-lg md:text-xl font-bold mt-1" style={{ color: N.primary }}>₹{achieved.toLocaleString()}</p>
+            </div>
+            <div className="rounded-lg p-3 text-center" style={{ background: N.surface }}>
+              <p className="text-xs" style={{ color: N.steel }}>Progress</p>
+              <p className="text-lg md:text-xl font-bold mt-1" style={{ color: yrPct >= 100 ? N.green : yrPct >= 50 ? N.orange : N.error }}>{yrPct}%</p>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <p className="text-xs font-medium" style={{ color: N.steel }}>Yearly Progress</p>
+              {showPreview && (
+                <p className="text-xs font-semibold" style={{ color: N.primary }}>
+                  Preview: {previewNewPct}% ({previewAmount > 0 ? "+" : ""}₹{previewAmount.toLocaleString()})
+                </p>
+              )}
+            </div>
+            <div className="w-full rounded-full h-3" style={{ background: N.hairline }}>
+              <div className="h-3 rounded-full transition-all duration-300"
+                style={{
+                  width: `${Math.min(yrPct, 100)}%`,
+                  background: yrPct >= 100 ? N.green : yrPct >= 50 ? N.orange : N.error
+                }} />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Achievement Form (Collapsible) - 30% Height */}
+      {/* Achievement Form (Collapsible) - Responsive */}
       {showForm && (
-        <div className="rounded-xl border p-5 w-full" style={{ background: N.surface, borderColor: N.hairline, minHeight: "30vh" }}>
-          <h4 className="text-sm font-semibold mb-4" style={{ color: N.ink }}>Add Achievement</h4>
-          <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-4 items-end h-full">
-            <div className="flex-1">
-              <label className="block text-xs font-medium mb-2" style={{ color: N.slate }}>Amount (INR) *</label>
-              <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
-                className="w-full border rounded-lg px-4 py-3 text-base outline-none"
-                style={{ borderColor: N.hairlineStrong }}
-                placeholder="Enter amount" min="0" required />
+        <div className="rounded-xl border p-4 md:p-6 w-full transition-all duration-300 animate-in fade-in" style={{ background: N.surface, borderColor: N.hairline }}>
+          <h4 className="text-sm md:text-base font-semibold mb-4" style={{ color: N.ink }}>Add Achievement</h4>
+          
+          {successMsg && (
+            <div className="mb-4 p-3 rounded-lg text-sm font-medium transition-all" style={{ background: N.mint, color: N.green }}>
+              {successMsg}
             </div>
-            <div className="flex-1">
-              <label className="block text-xs font-medium mb-2" style={{ color: N.slate }}>Description</label>
-              <input type="text" value={desc} onChange={e => setDesc(e.target.value)}
-                className="w-full border rounded-lg px-4 py-3 text-base outline-none"
-                style={{ borderColor: N.hairlineStrong }}
-                placeholder="e.g. Sale, Contract" />
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Input Fields */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium mb-2" style={{ color: N.slate }}>Amount (INR) *</label>
+                <input
+                  type="number"
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  className="w-full border rounded-lg px-4 py-2.5 md:py-3 text-sm md:text-base outline-none transition-all"
+                  style={{ borderColor: amount ? N.primary : N.hairlineStrong }}
+                  placeholder="Enter amount"
+                  min="0"
+                  required
+                  disabled={submitting}
+                />
+                {showPreview && (
+                  <p className="text-xs mt-2" style={{ color: N.primary }}>
+                    New Balance: ₹{previewNewBalance.toLocaleString()} (₹{previewNewYtd.toLocaleString()} total YTD)
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-2" style={{ color: N.slate }}>Description</label>
+                <input
+                  type="text"
+                  value={desc}
+                  onChange={e => setDesc(e.target.value)}
+                  className="w-full border rounded-lg px-4 py-2.5 md:py-3 text-sm md:text-base outline-none transition-all"
+                  style={{ borderColor: N.hairlineStrong }}
+                  placeholder="e.g. Sale, Contract"
+                  disabled={submitting}
+                />
+              </div>
             </div>
-            <button type="submit"
-              className="px-8 py-3 rounded-lg text-base font-semibold text-white cursor-pointer transition-all hover:shadow-md active:scale-95"
-              style={{ background: N.green }}>
-              Submit
+
+            {/* Real-time Preview Card */}
+            {showPreview && (
+              <div className="rounded-lg p-4 border-2" style={{ background: N.sky, borderColor: N.primary }}>
+                <p className="text-xs font-semibold mb-3" style={{ color: N.primary }}>PREVIEW (After Submission)</p>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <p className="text-xs" style={{ color: N.steel }}>New YTD</p>
+                    <p className="text-lg font-bold mt-1" style={{ color: N.primary }}>₹{previewNewYtd.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs" style={{ color: N.steel }}>New Balance</p>
+                    <p className="text-lg font-bold mt-1" style={{ color: previewNewBalance === 0 ? N.green : N.error }}>₹{previewNewBalance.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs" style={{ color: N.steel }}>Progress</p>
+                    <p className="text-lg font-bold mt-1" style={{ color: previewNewPct >= 100 ? N.green : N.orange }}>{previewNewPct}%</p>
+                  </div>
+                </div>
+                {previewNewPct >= 100 && (
+                  <div className="mt-3 p-2 rounded text-xs font-semibold text-center" style={{ background: N.mint, color: N.green }}>
+                    ✓ Target will be ACHIEVED!
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={submitting || !amount || parseFloat(amount) <= 0}
+              className="w-full px-4 py-3 rounded-lg text-sm md:text-base font-semibold text-white cursor-pointer transition-all hover:shadow-md active:scale-95 disabled:opacity-50"
+              style={{ background: submitting || !amount || parseFloat(amount) <= 0 ? N.stone : N.green }}>
+              {submitting ? "Submitting..." : "Submit Achievement"}
             </button>
           </form>
         </div>
       )}
 
-      {/* History */}
+      {/* Monthly History */}
       {myTarget.history && myTarget.history.length > 0 && (
         <div className="rounded-xl border overflow-hidden" style={{ background: N.canvas, borderColor: N.hairline }}>
-          <div className="px-4 py-2 border-b" style={{ borderColor: N.hairline, background: N.surface }}>
-            <h4 className="text-xs font-semibold" style={{ color: N.steel }}>Recent History</h4>
+          <div className="px-4 py-3 border-b" style={{ borderColor: N.hairline, background: N.surface }}>
+            <h4 className="text-xs md:text-sm font-semibold" style={{ color: N.steel }}>Monthly Achievement History</h4>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -1285,20 +1479,194 @@ const EmployeeTargetCard = ({ user, onUpdateAchievement }) => {
                 {myTarget.history.slice(0, 3).map(h => {
                   const hpct = h.monthly_target > 0 ? Math.round((h.achieved_amount / h.monthly_target) * 100) : 0;
                   return (
-                    <tr key={h.month_year} className="border-t" style={{ borderColor: N.hairline }}>
-                      <td className="px-3 py-1.5" style={{ color: N.charcoal }}>{h.month_year}</td>
-                      <td className="px-3 py-1.5" style={{ color: N.charcoal }}>₹{(parseFloat(h.monthly_target) || 0).toLocaleString()}</td>
-                      <td className="px-3 py-1.5" style={{ color: N.green }}>₹{(parseFloat(h.achieved_amount) || 0).toLocaleString()}</td>
-                      <td className="px-3 py-1.5">
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold"
-                          style={{ background: hpct >= 100 ? N.mint : hpct >= 50 ? N.peach : "#fde0ec",
-                                   color: hpct >= 100 ? N.green : hpct >= 50 ? N.orange : N.error }}>
-                          {hpct >= 100 ? "Completed" : hpct >= 50 ? "Process" : "New"}
+                    <tr key={h.month_year} className="border-t hover:bg-gray-50" style={{ borderColor: N.hairline }}>
+                      <td className="px-3 py-2" style={{ color: N.charcoal }}>{h.month_year}</td>
+                      <td className="px-3 py-2" style={{ color: N.charcoal }}>₹{(parseFloat(h.monthly_target) || 0).toLocaleString()}</td>
+                      <td className="px-3 py-2 font-semibold" style={{ color: N.green }}>₹{(parseFloat(h.achieved_amount) || 0).toLocaleString()}</td>
+                      <td className="px-3 py-2">
+                        <span className="px-2 py-1 rounded-full text-xs font-semibold inline-block"
+                          style={{
+                            background: hpct >= 100 ? N.mint : hpct >= 50 ? N.peach : "#fde0ec",
+                            color: hpct >= 100 ? N.green : hpct >= 50 ? N.orange : N.error
+                          }}>
+                          {hpct >= 100 ? "✓ Completed" : hpct >= 50 ? "In Progress" : "Started"}
                         </span>
                       </td>
                     </tr>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Individual Submissions with Descriptions */}
+      {myTarget.submissions && myTarget.submissions.length > 0 && (
+        <div className="rounded-xl border overflow-hidden" style={{ background: N.canvas, borderColor: N.hairline }}>
+          <div className="px-4 py-3 border-b" style={{ borderColor: N.hairline, background: N.surface }}>
+            <h4 className="text-xs md:text-sm font-semibold" style={{ color: N.steel }}>Recent Submissions</h4>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead style={{ background: N.surfaceSoft }}>
+                <tr>
+                  {["Date", "Month", "Amount", "Description"].map(h => (
+                    <th key={h} className="px-3 py-2 text-left font-semibold uppercase tracking-wide" style={{ color: N.steel }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {myTarget.submissions.slice(0, 5).map(s => (
+                  <tr key={s.id} className="border-t hover:bg-gray-50" style={{ borderColor: N.hairline }}>
+                    <td className="px-3 py-2 text-[10px]" style={{ color: N.steel }}>{new Date(s.created_at).toLocaleDateString("en-IN")}</td>
+                    <td className="px-3 py-2" style={{ color: N.charcoal }}>{s.month_year}</td>
+                    <td className="px-3 py-2 font-semibold" style={{ color: N.green }}>₹{(parseFloat(s.amount) || 0).toLocaleString()}</td>
+                    <td className="px-3 py-2 max-w-[150px] truncate" style={{ color: N.slate }} title={s.description}>{s.description || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Admin Target Drill-Down ──────────────────────────────────────────────────
+const AdminTargetDrillDown = ({ employeeName, history, tHistFilter, onBack, tHistCustomFrom, tHistCustomTo, onFilterChange, onCustomFromChange, onCustomToChange, tHistStatusFilter, onStatusFilterChange }) => {
+  const [submissions, setSubmissions] = useState([]);
+
+  useEffect(() => {
+    const fetchSubmissions = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await axios.get(`${API}/api/task/targets/history?user_name=${encodeURIComponent(employeeName)}&months=12`,
+          { headers: { Authorization: `Bearer ${token}` } });
+        setSubmissions(res.data?.submissions || []);
+      } catch { setSubmissions([]); }
+    };
+    fetchSubmissions();
+  }, [employeeName]);
+
+  const DateFilterBar2 = ({ filter, setFilter, customFrom, setCustomFrom, customTo, setCustomTo, showCustom }) => (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {[["all", "All"], ["month", "Month"], ["year", "Year"]].map(([k, l]) => (
+        <button key={k} onClick={() => setFilter(k)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${filter === k ? "bg-white shadow" : ""}`}
+          style={{ color: filter === k ? N.primary : N.steel }}>
+          {l}
+        </button>
+      ))}
+      {showCustom && (
+        <div className="flex items-center gap-1 ml-2">
+          <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+            className="border-0 outline-none text-xs" style={{ color: N.ink }} />
+          <span className="text-xs" style={{ color: N.steel }}>to</span>
+          <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+            className="border-0 outline-none text-xs" style={{ color: N.ink }} />
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <button onClick={onBack}
+          className="flex items-center gap-1 text-sm font-medium cursor-pointer" style={{ color: N.primary }}>
+          <ChevronLeft size={16} /> Back
+        </button>
+        <h3 className="text-base font-semibold" style={{ color: N.ink }}>{employeeName} — Target History</h3>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <DateFilterBar2 filter={tHistFilter} setFilter={onFilterChange}
+          customFrom={tHistCustomFrom} setCustomFrom={onCustomFromChange}
+          customTo={tHistCustomTo} setCustomTo={onCustomToChange} showCustom />
+        <div className="ml-auto flex items-center gap-2">
+          <select value={tHistStatusFilter} onChange={e => onStatusFilterChange(e.target.value)}
+            className="border rounded-lg px-3 py-2 text-sm bg-white" style={{ borderColor: N.hairline, color: N.ink }}>
+            <option value="all">All Status</option>
+            <option value="Completed">Completed</option>
+            <option value="Process">Process</option>
+            <option value="New">New</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Monthly Aggregate Table */}
+      <div className="rounded-xl border overflow-hidden" style={{ background: N.canvas, borderColor: N.hairline }}>
+        <table className="w-full text-sm">
+          <thead style={{ background: N.surface }}>
+            <tr>
+              {["Month", "Target", "Carry Fwd", "Effective", "Achieved", "Balance", "Status"].map(h => (
+                <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: N.steel }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {(() => {
+              let filtered = history;
+              if (tHistFilter !== "all") filtered = applyDateFilter(filtered, "month_year", tHistFilter, tHistCustomFrom, tHistCustomTo);
+              if (tHistStatusFilter !== "all") {
+                filtered = filtered.filter(h => {
+                  const eff = parseFloat(h.effective_target) || parseFloat(h.monthly_target);
+                  const pct = eff > 0 ? Math.round((h.achieved_amount / eff) * 100) : 0;
+                  const status = pct >= 100 ? "Completed" : pct >= 50 ? "Process" : "New";
+                  return status === tHistStatusFilter;
+                });
+              }
+              return filtered.map(h => {
+                const eff = parseFloat(h.effective_target) || parseFloat(h.monthly_target);
+                const balance = Math.max(0, eff - h.achieved_amount);
+                const pct = eff > 0 ? Math.round((h.achieved_amount / eff) * 100) : 0;
+                return (
+                  <tr key={h.month_year} className="border-t" style={{ borderColor: N.hairline }}>
+                    <td className="px-4 py-3" style={{ color: N.charcoal }}>{h.month_year}</td>
+                    <td className="px-4 py-3" style={{ color: N.charcoal }}>₹{(parseFloat(h.monthly_target) || 0).toLocaleString()}</td>
+                    <td className="px-4 py-3" style={{ color: N.orange }}>₹{(parseFloat(h.carry_forward) || 0).toLocaleString()}</td>
+                    <td className="px-4 py-3" style={{ color: N.primary }}>₹{eff.toLocaleString()}</td>
+                    <td className="px-4 py-3" style={{ color: N.green }}>₹{(parseFloat(h.achieved_amount) || 0).toLocaleString()}</td>
+                    <td className="px-4 py-3" style={{ color: balance === 0 ? N.green : N.error }}>₹{balance.toLocaleString()}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={pct >= 100 ? "Completed" : pct >= 50 ? "Process" : "New"} />
+                    </td>
+                  </tr>
+                );
+              });
+            })()}
+            {history.length === 0 && (
+              <tr><td colSpan={7} className="py-10 text-center text-sm" style={{ color: N.stone }}>No history records.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Individual Submissions */}
+      {submissions.length > 0 && (
+        <div className="rounded-xl border overflow-hidden" style={{ background: N.canvas, borderColor: N.hairline }}>
+          <div className="px-4 py-3 border-b" style={{ borderColor: N.hairline, background: N.surface }}>
+            <h4 className="text-sm font-semibold" style={{ color: N.steel }}>Individual Submissions</h4>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead style={{ background: N.surfaceSoft }}>
+                <tr>
+                  {["Date", "Month", "Amount", "Description"].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: N.steel }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {submissions.map(s => (
+                  <tr key={s.id} className="border-t hover:bg-gray-50" style={{ borderColor: N.hairline }}>
+                    <td className="px-4 py-3 text-xs" style={{ color: N.steel }}>{new Date(s.created_at).toLocaleDateString("en-IN")}</td>
+                    <td className="px-4 py-3" style={{ color: N.charcoal }}>{s.month_year}</td>
+                    <td className="px-4 py-3 font-semibold" style={{ color: N.green }}>₹{(parseFloat(s.amount) || 0).toLocaleString()}</td>
+                    <td className="px-4 py-3 max-w-[250px] truncate" style={{ color: N.slate }} title={s.description}>{s.description || "—"}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

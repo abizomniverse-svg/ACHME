@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import "../Styles/tailwind.css";
 import Followup from "../components/followupsummary";
 import Remainder from "../components/remaindersummary";
@@ -11,14 +11,83 @@ import {
 } from "../utils/leadutil";
 import axios from "axios";
 import { useAuth } from "../auth/AuthContext";
+import { useNavigate } from "react-router-dom";
 import socket from "../socket/socket";
+import { motion } from "framer-motion";
+import {
+  TrendingUp, Users, Phone, MapPin, IndianRupee,
+  FileText, FileSpreadsheet, CreditCard, UserCheck,
+  ClipboardList, Target, Shield, Calculator,
+  Bell, Clock, CheckCircle, XCircle,
+  ArrowUpRight, ArrowDownRight, RefreshCw,
+  Activity, Calendar, BarChart3, ChevronRight,
+  Building2, MessageSquare, AlertCircle,
+  CheckSquare, ListTodo, Briefcase, User
+} from "lucide-react";
 
 import { API } from "../config/api";
 
 const API_BACKEND = API;
 
+const badgeStyles = {
+  New: { text: "text-orange-500", bg: "bg-orange-500", ring: "ring-2 ring-offset-1 ring-orange-500" },
+  Converted: { text: "text-green-600", bg: "bg-green-600", ring: "ring-2 ring-offset-1 ring-green-600" },
+  Disqualified: { text: "text-red-600", bg: "bg-red-600", ring: "ring-2 ring-offset-1 ring-red-600" },
+};
+
+const st = (key) => badgeStyles[key] || { text: "text-muted", bg: "bg-gray-400", ring: "" };
+
+const LiveDot = () => {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    const id = setInterval(() => setOn(v => !v), 1500);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span className="relative flex h-2.5 w-2.5">
+      <span className={`absolute inline-flex h-full w-full rounded-full bg-green-400 ${on ? "opacity-75" : "opacity-0"} transition-opacity`}></span>
+      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+    </span>
+  );
+};
+
+const AnimatedCounter = ({ value, prefix = "", decimals = 0 }) => {
+  const [display, setDisplay] = useState(Number(value) || 0);
+  const ref = useRef(Number(value) || 0);
+  useEffect(() => {
+    const num = Number(value) || 0;
+    const start = ref.current;
+    if (Math.abs(num - start) < 0.5) { setDisplay(num); ref.current = num; return; }
+    const duration = 350;
+    const t0 = performance.now();
+    let id;
+    const tick = (now) => {
+      const p = Math.min((now - t0) / duration, 1);
+      setDisplay(start + (num - start) * p);
+      if (p < 1) id = requestAnimationFrame(tick); else ref.current = num;
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [value]);
+  return <span>{prefix}{typeof display === "number" ? display.toLocaleString("en-IN", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) : display}</span>;
+};
+
+const StatusBadge = ({ count, label, status, active, onClick }) => {
+  const s = st(status);
+  return (
+    <button onClick={onClick} className="flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-all active:scale-95">
+      <span className={`text-[10px] md:text-xs font-bold tracking-wide ${active ? s.text : "text-muted"}`}>{label}</span>
+      <span className={`text-white text-xs font-bold px-2 py-0.5 rounded-full ${active ? s.bg : "bg-gray-300"} ${active ? s.ring : "opacity-80"}`}>{count}</span>
+      {active && <div className="w-full h-0.5 rounded-full bg-brand-orange mt-0.5"></div>}
+    </button>
+  );
+};
+
 const Dashboard = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const fetching = useRef(false);
+
   const [leads, setLeads] = useState([]);
   const [walkins, setWalkins] = useState([]);
   const [fields, setFields] = useState([]);
@@ -44,378 +113,320 @@ const Dashboard = () => {
   const userDisplayName = user?.name || currentUserName;
   const today = getToday();
 
-  const fetchAll = async () => {
-    setLoading(true);
-    try {
-      const [t, w, f, quot, inv, pay, cli, task, taskAct, tgt, amc, cr, cont, est, pi] = await Promise.all([
-        axios.get(`${API_BACKEND}/api/Telecalls`),
-        axios.get(`${API_BACKEND}/api/Walkins`),
-        axios.get(`${API_BACKEND}/api/Fields`),
-        axios.get(`${API_BACKEND}/api/quotations`),
-        axios.get(`${API_BACKEND}/api/invoice`),
-        axios.get(`${API_BACKEND}/api/payments`),
-        axios.get(`${API_BACKEND}/api/client`),
-        axios.get(`${API_BACKEND}/api/task`),
-        axios.get(`${API_BACKEND}/api/task/activity`),
-        axios.get(`${API_BACKEND}/api/targets`),
-        axios.get(`${API_BACKEND}/api/amc`),
-        axios.get(`${API_BACKEND}/api/call-reports`),
-        axios.get(`${API_BACKEND}/api/contract`),
-        axios.get(`${API_BACKEND}/api/estimate`),
-        axios.get(`${API_BACKEND}/api/performainvoice`),
-      ]);
+  const batchSet = useCallback((data) => {
+    setLeads(data[0]); setWalkins(data[1]); setFields(data[2]);
+    setQuotations(data[3]); setInvoices(data[4]); setPayments(data[5]);
+    setClients(data[6]); setTasks(data[7]); setTaskActivity(data[8]);
+    setTargets(data[9]); setAmcContracts(data[10]); setCallReports(data[11]);
+    setContracts(data[12]); setEstimates(data[13]); setPerformaInvoices(data[14]);
+  }, []);
 
-      setLeads(t.data);
-      setWalkins(w.data);
-      setFields(f.data);
-      setQuotations(quot.data);
-      setInvoices(inv.data);
-      setPayments(pay.data);
-      setClients(cli.data);
-      setTasks(task.data);
-      setTaskActivity(taskAct.data);
-      setTargets(tgt.data);
-      setAmcContracts(amc.data);
-      setCallReports(cr.data);
-      setContracts(cont.data);
-      setEstimates(est.data);
-      setPerformaInvoices(pi.data);
-    } catch (err) {
-      console.error("Fetching error:", err);
+  const fetchAll = useCallback(async () => {
+    if (fetching.current) return;
+    fetching.current = true;
+    setLoading(true);
+    const urls = [`${API_BACKEND}/api/Telecalls`,`${API_BACKEND}/api/Walkins`,`${API_BACKEND}/api/Fields`,
+      `${API_BACKEND}/api/quotations`,`${API_BACKEND}/api/invoice`,`${API_BACKEND}/api/payments`,
+      `${API_BACKEND}/api/client`,`${API_BACKEND}/api/task`,`${API_BACKEND}/api/task/activity`,
+      `${API_BACKEND}/api/targets`,`${API_BACKEND}/api/amc`,`${API_BACKEND}/api/call-reports`,
+      `${API_BACKEND}/api/contract`,`${API_BACKEND}/api/estimate`,`${API_BACKEND}/api/performainvoice`];
+    try {
+      const res = await Promise.all(urls.map(u => axios.get(u).catch(() => null)));
+      const d = res.map(r => r && r.data ? r.data : []);
+      batchSet(d);
+    } catch (_) {
       try {
-        const [t, w, f, quot, inv, pay, cli, task, taskAct, tgt, amc, cr, cont, est, pi] = await Promise.all([
-          axios.get("/api/Telecalls"),
-          axios.get("/api/Walkins"),
-          axios.get("/api/Fields"),
-          axios.get("/api/quotations"),
-          axios.get("/api/invoice"),
-          axios.get("/api/payments"),
-          axios.get("/api/client"),
-          axios.get("/api/task"),
-          axios.get("/api/task/activity"),
-          axios.get("/api/targets"),
-          axios.get("/api/amc"),
-          axios.get("/api/call-reports"),
-          axios.get("/api/contract"),
-          axios.get("/api/estimate"),
-          axios.get("/api/performainvoice"),
-        ]);
-        setLeads(t.data);
-        setWalkins(w.data);
-        setFields(f.data);
-        setQuotations(quot.data);
-        setInvoices(inv.data);
-        setPayments(pay.data);
-        setClients(cli.data);
-        setTasks(task.data);
-        setTaskActivity(taskAct.data);
-        setTargets(tgt.data);
-        setAmcContracts(amc.data);
-        setCallReports(cr.data);
-        setContracts(cont.data);
-        setEstimates(est.data);
-        setPerformaInvoices(pi.data);
-      } catch (err2) {
-        console.error("Fallback also failed:", err2);
-      }
+        const fb = urls.map(u => u.replace(API_BACKEND, ""));
+        const res = await Promise.all(fb.map(u => axios.get(u).catch(() => null)));
+        const d = res.map(r => r && r.data ? r.data : []);
+        batchSet(d);
+      } catch (__) {}
     }
     setLoading(false);
     setLastFetch(new Date());
-  };
+    fetching.current = false;
+  }, [batchSet]);
 
-  useEffect(() => { fetchAll(); }, []);
-
-  useEffect(() => {
-    const refresh = () => fetchAll();
-    window.addEventListener("refresh-dashboard", refresh);
-    return () => window.removeEventListener("refresh-dashboard", refresh);
-  }, []);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   useEffect(() => {
-    const handleChange = () => fetchAll();
-    socket.on("data_changed", handleChange);
-    return () => socket.off("data_changed", handleChange);
-  }, []);
+    const fn = () => fetchAll();
+    window.addEventListener("refresh-dashboard", fn);
+    return () => window.removeEventListener("refresh-dashboard", fn);
+  }, [fetchAll]);
 
   useEffect(() => {
-    const interval = setInterval(() => fetchAll(), 10000);
-    return () => clearInterval(interval);
-  }, []);
+    const fn = () => fetchAll();
+    socket.on("data_changed", fn);
+    return () => socket.off("data_changed", fn);
+  }, [fetchAll]);
 
-  const todaysTelecallsData = leads.filter(l => normalizeDate(l.call_date) === today);
-  const todaysWalkinsData = walkins.filter(w => normalizeDate(w.walkin_date) === today);
-  const todaysFieldsData = fields.filter(f => normalizeDate(f.visit_date) === today);
+  useEffect(() => {
+    const id = setInterval(() => fetchAll(), 20000);
+    return () => clearInterval(id);
+  }, [fetchAll]);
 
-  const telecallToday = departmentCount(todaysTelecallsData, "call_outcome");
-  const walkinToday = departmentCount(todaysWalkinsData, "walkin_status");
-  const fieldToday = departmentCount(todaysFieldsData, "field_outcome");
+  const ttd = useMemo(() => leads.filter(l => normalizeDate(l.call_date) === today), [leads, today]);
+  const twd = useMemo(() => walkins.filter(w => normalizeDate(w.walkin_date) === today), [walkins, today]);
+  const tfd = useMemo(() => fields.filter(f => normalizeDate(f.visit_date) === today), [fields, today]);
 
-  const statusColors = {
-    New: { text: "text-orange-500", bg: "bg-orange-500" },
-    Converted: { text: "text-green-600", bg: "bg-green-600" },
-    Disqualified: { text: "text-red-600", bg: "bg-red-600" },
-  };
+  const telecallToday = departmentCount(ttd, "call_outcome");
+  const walkinToday = departmentCount(twd, "walkin_status");
+  const fieldToday = departmentCount(tfd, "field_outcome");
 
-  const followupNotes = {
+  const followupNotes = useMemo(() => ({
     Todays: leads.filter(l => l.followup_required === "Yes" && normalizeDate(l.followup_date) === today && l.followup_notes),
     Due: leads.filter(l => l.followup_required === "Yes" && normalizeDate(l.followup_date) > today && l.followup_notes),
     Overdue: leads.filter(l => l.followup_required === "Yes" && normalizeDate(l.followup_date) < today && l.followup_notes),
-  };
+  }), [leads, today]);
+  const followupSummary = useMemo(() => ({ Todays: followupNotes.Todays.length, Due: followupNotes.Due.length, Overdue: followupNotes.Overdue.length }), [followupNotes]);
 
-  const followupSummary = {
-    Todays: followupNotes.Todays.length,
-    Due: followupNotes.Due.length,
-    Overdue: followupNotes.Overdue.length,
-  };
-
-  const remainderNotes = {
+  const remainderNotes = useMemo(() => ({
     Todays: leads.filter(l => l.reminder_required === "Yes" && normalizeDate(l.reminder_date) === today && l.reminder_notes),
     Due: leads.filter(l => l.reminder_required === "Yes" && normalizeDate(l.reminder_date) > today && l.reminder_notes),
     Overdue: leads.filter(l => l.reminder_required === "Yes" && normalizeDate(l.reminder_date) < today && l.reminder_notes),
-  };
-
-  const remainderSummary = {
-    Todays: remainderNotes.Todays.length,
-    Due: remainderNotes.Due.length,
-    Overdue: remainderNotes.Overdue.length,
-  };
+  }), [leads, today]);
+  const remainderSummary = useMemo(() => ({ Todays: remainderNotes.Todays.length, Due: remainderNotes.Due.length, Overdue: remainderNotes.Overdue.length }), [remainderNotes]);
 
   const totalLeads = leads.length + walkins.length + fields.length;
-  const todaysLeads = todaysTelecallsData.length + todaysWalkinsData.length + todaysFieldsData.length;
+  const todaysLeads = ttd.length + twd.length + tfd.length;
 
   const totalQuotations = quotations.length;
-  const totalQuotationValue = quotations.reduce((sum, q) => sum + (Number(q.grand_total) || 0), 0);
-  const todaysQuotations = quotations.filter(q => normalizeDate(q.quotation_date) === today).length;
-
-  const totalInvoices = invoices.length;
-  const totalInvoiceValue = invoices.reduce((sum, i) => sum + (Number(i.grand_total) || 0), 0);
+  const totalQuotationValue = useMemo(() => quotations.reduce((s, q) => s + (Number(q.grand_total) || 0), 0), [quotations]);
 
   const totalPayments = payments.length;
-  const totalPaymentAmount = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const todaysPayments = payments.filter(p => normalizeDate(p.payment_date) === today).length;
+  const totalPaymentAmount = useMemo(() => payments.reduce((s, p) => s + (Number(p.amount) || 0), 0), [payments]);
 
   const totalClients = clients.length;
-  const myClients = clients.filter(c => c.created_by === user?.id).length;
+  const myClients = useMemo(() => clients.filter(c => c.created_by === user?.id).length, [clients, user?.id]);
 
   const totalTasksCount = tasks.length;
-  const completedTasks = tasks.filter(t => t.project_status === "Completed").length;
-  const pendingTasks = tasks.filter(t => t.project_status === "Process").length;
-  const taskCompletionRate = totalTasksCount > 0 ? ((completedTasks / totalTasksCount) * 100).toFixed(1) : 0;
-
-  const totalTargets = targets.length;
-  const achievedTargets = targets.filter(t => (Number(t.achieved_amount) || 0) >= (Number(t.monthly_target) || 0)).length;
+  const completedTasks = useMemo(() => tasks.filter(t => t.project_status === "Completed").length, [tasks]);
+  const pendingTasks = useMemo(() => tasks.filter(t => t.project_status === "Process").length, [tasks]);
+  const taskCompletionRate = useMemo(() => totalTasksCount > 0 ? ((completedTasks / totalTasksCount) * 100).toFixed(1) : 0, [totalTasksCount, completedTasks]);
 
   const totalAmcContracts = amcContracts.length;
-  const activeAmcContracts = amcContracts.filter(a => a.status === "Active").length;
+  const activeAmcContracts = useMemo(() => amcContracts.filter(a => a.status === "Active").length, [amcContracts]);
 
   const totalCallReports = callReports.length;
-  const todaysCallReports = callReports.filter(c => normalizeDate(c.call_date) === today).length;
-
-  const totalContracts = contracts.length;
-  const activeContracts = contracts.filter(c => c.status === "Active").length;
+  const todaysCallReports = useMemo(() => callReports.filter(c => normalizeDate(c.call_date) === today).length, [callReports, today]);
 
   const totalEstimates = estimates.length;
-  const totalEstimateValue = estimates.reduce((sum, e) => sum + (Number(e.grand_total) || 0), 0);
+  const totalEstimateValue = useMemo(() => estimates.reduce((s, e) => s + (Number(e.grand_total) || 0), 0), [estimates]);
 
   const totalPerformaInvoices = performaInvoices.length;
-  const totalPerformaValue = performaInvoices.reduce((sum, p) => sum + (Number(p.grand_total) || 0), 0);
-  const todaysPerformaSales = performaInvoices
-    .filter(p => normalizeDate(p.invoice_date) === today)
-    .reduce((sum, p) => sum + (Number(p.grand_total) || 0), 0);
+  const todaysPerformaSales = useMemo(() => performaInvoices.filter(p => normalizeDate(p.invoice_date) === today).reduce((s, p) => s + (Number(p.grand_total) || 0), 0), [performaInvoices, today]);
 
   if (loading) {
     return (
       <div className="w-full bg-surface p-4 lead-summary-main flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="text-slate mt-4">Loading your data...</p>
+          <div className="relative mx-auto w-16 h-16">
+            <div className="absolute inset-0 rounded-full border-4 border-primary/20"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-primary animate-spin"></div>
+          </div>
+          <p className="text-muted mt-6 text-sm font-medium">Loading your data...</p>
+          <div className="flex items-center justify-center gap-2 mt-3"><LiveDot /><span className="text-xs text-green-500 font-medium">Real-time connection</span></div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full bg-surface p-4 lead-summary-main">
-      <div className="p-6">
-        <div className="flex items-center justify-between">
+    <div className="w-full min-h-screen bg-surface">
+      <div className="max-w-6xl mx-auto p-3 md:p-6 space-y-4 md:space-y-6">
+
+        {/* Welcome Header */}
+        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+          className="card p-4 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4"
+        >
           <div>
-            <h1 className="text-2xl font-bold text-ink">
-              Welcome back,{" "}
-              <span className="text-primary">{userDisplayName}</span>
+            <h1 className="text-xl md:text-2xl font-bold text-ink flex items-center gap-2">
+              Welcome back, <span className="text-primary">{userDisplayName}</span>
             </h1>
-            <p className="text-slate mt-1">Your Personal Dashboard - Live Data</p>
+            <p className="text-muted text-sm mt-1 flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5" />
+              Your Personal Dashboard &mdash; Live Data
+            </p>
           </div>
-          <div className="text-right text-sm text-muted">
-            <p>Total Leads: {totalLeads}</p>
-            <p>Today's Activity: {todaysLeads}</p>
-            <div className="flex items-center justify-end gap-2 mt-1">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              <span className="text-green-500 font-medium text-xs">LIVE</span>
-              <span className="text-xs">{lastFetch.toLocaleTimeString()}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => navigate("/dashboard/telecalling")} className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-purple-500 text-white text-xs font-semibold shadow-sm active:scale-95 transition-all"><Phone className="w-4 h-4" /><span className="hidden sm:inline">New Call</span></button>
+            <button onClick={() => navigate("/dashboard/field")} className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-500 text-white text-xs font-semibold shadow-sm active:scale-95 transition-all"><MapPin className="w-4 h-4" /><span className="hidden sm:inline">Field Visit</span></button>
+            <div className="hidden md:flex items-center gap-2 pl-3 border-l border-hairline"><LiveDot /><span className="text-xs text-green-500 font-semibold">LIVE</span></div>
+          </div>
+          <div className="flex md:hidden items-center justify-between w-full">
+            <div className="flex items-center gap-2"><LiveDot /><span className="text-xs text-green-500 font-semibold">LIVE</span></div>
+            <span className="text-xs text-muted">{lastFetch.toLocaleTimeString()}</span>
+          </div>
+        </motion.div>
+
+        {/* Personal KPI */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          {[
+            { icon: IndianRupee, title: "My Sales Today", value: todaysPerformaSales, sub: `₹${todaysPerformaSales.toLocaleString("en-IN")}`, color: "bg-gradient-to-br from-emerald-500 to-emerald-600", onClick: () => navigate("/dashboard/performainvoice") },
+            { icon: FileText, title: "My Quotations", value: totalQuotations, sub: `₹${(totalQuotationValue/1000).toFixed(1)}K total`, color: "bg-gradient-to-br from-violet-500 to-violet-600", onClick: () => navigate("/dashboard/quotation") },
+            { icon: ClipboardList, title: "My Tasks", value: `${completedTasks}/${totalTasksCount}`, sub: `${taskCompletionRate}% completed`, color: "bg-gradient-to-br from-rose-500 to-rose-600", onClick: () => navigate("/dashboard/task") },
+            { icon: UserCheck, title: "My Clients", value: myClients, sub: `${totalClients} total clients`, color: "bg-gradient-to-br from-indigo-500 to-indigo-600", onClick: () => navigate("/dashboard/clients") },
+          ].map(card => (
+            <motion.div key={card.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+              className="card p-4 cursor-pointer transition-all duration-200 hover:shadow-level-2 active:scale-[0.97]" onClick={card.onClick}
+            >
+              <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center ${card.color} mb-3`}>
+                <card.icon className="w-5 h-5 md:w-6 md:h-6 text-white" />
+              </div>
+              <p className="text-xs text-muted font-medium truncate">{card.title}</p>
+              <h3 className="text-lg md:text-xl font-bold text-ink mt-1 truncate">
+                {card.title.includes("Sales") ? <><AnimatedCounter value={card.value} prefix="₹" /></> :
+                 card.title.includes("Tasks") ? card.value :
+                 <AnimatedCounter value={card.value} />}
+              </h3>
+              <p className="text-[10px] md:text-xs text-muted mt-1 truncate">{card.sub}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Today's Activity */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card p-4 md:p-5">
+          <h2 className="text-sm md:text-base font-bold text-ink mb-4 flex items-center gap-2">
+            <Activity className="w-4 h-5 text-primary" />
+            Today&apos;s Activity
+          </h2>
+          <div className="grid grid-cols-3 gap-3 md:gap-6">
+            <div className="text-center p-3 rounded-xl bg-purple-50">
+              <Phone className="w-5 h-5 text-purple-500 mx-auto mb-1" />
+              <p className="text-lg md:text-xl font-bold text-purple-600"><AnimatedCounter value={ttd.length} /></p>
+              <p className="text-[10px] md:text-xs text-muted">Calls</p>
+            </div>
+            <div className="text-center p-3 rounded-xl bg-blue-50">
+              <Users className="w-5 h-5 text-blue-500 mx-auto mb-1" />
+              <p className="text-lg md:text-xl font-bold text-blue-600"><AnimatedCounter value={twd.length} /></p>
+              <p className="text-[10px] md:text-xs text-muted">Walk-ins</p>
+            </div>
+            <div className="text-center p-3 rounded-xl bg-amber-50">
+              <MapPin className="w-5 h-5 text-amber-500 mx-auto mb-1" />
+              <p className="text-lg md:text-xl font-bold text-amber-600"><AnimatedCounter value={tfd.length} /></p>
+              <p className="text-[10px] md:text-xs text-muted">Field Visits</p>
             </div>
           </div>
-        </div>
-      </div>
+          <div className="flex items-center justify-center gap-2 mt-4 text-xs text-muted border-t border-hairline pt-3">
+            <LiveDot /><span>{totalLeads} total leads &middot; {todaysLeads} active today</span>
+          </div>
+        </motion.div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6">
-        <div className="card p-4 text-center">
-          <p className="text-xs text-slate">My Sales Today</p>
-          <h3 className="text-xl font-semibold text-ink mt-1">₹{todaysPerformaSales.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</h3>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-xs text-slate">My Quotations</p>
-          <h3 className="text-xl font-semibold text-ink mt-1">{totalQuotations}</h3>
-          <p className="text-xs text-muted">₹{totalQuotationValue.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-xs text-slate">My Tasks</p>
-          <h3 className="text-xl font-semibold text-ink mt-1">{completedTasks}/{totalTasksCount}</h3>
-          <p className="text-xs text-muted">{taskCompletionRate}% complete</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-xs text-slate">My Clients</p>
-          <h3 className="text-xl font-semibold text-ink mt-1">{myClients}</h3>
-          <p className="text-xs text-muted">{totalClients} total</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-xs text-slate">Payments Received</p>
-          <h3 className="text-xl font-semibold text-ink mt-1">₹{totalPaymentAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</h3>
-          <p className="text-xs text-muted">{totalPayments} payments</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-xs text-slate">Estimates</p>
-          <h3 className="text-xl font-semibold text-ink mt-1">{totalEstimates}</h3>
-          <p className="text-xs text-muted">₹{totalEstimateValue.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-xs text-slate">AMC Contracts</p>
-          <h3 className="text-xl font-semibold text-ink mt-1">{activeAmcContracts}</h3>
-          <p className="text-xs text-muted">{totalAmcContracts} total</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-xs text-slate">Call Reports</p>
-          <h3 className="text-xl font-semibold text-ink mt-1">{todaysCallReports}</h3>
-          <p className="text-xs text-muted">{totalCallReports} total today</p>
-        </div>
-      </div>
-
-      <div className="flex mt-10 gap-8 justify-center">
-        <div className="w-[45%] card p-8 mr-10">
-          <h2 className="text-center text-slate font-semibold text-lg mb-6">Telecalling Summary</h2>
-          <div className="flex justify-center gap-10">
-            {["New", "Converted", "Disqualified"].map(status => (
-              <div key={status} onClick={() => setActiveTelecall(status)} className="cursor-pointer text-center">
-                <span className={`reaminder-font ${activeTelecall === status ? statusColors[status].text : "text-gray-700"}`}>{status}</span>
-                <span className={`ml-2 text-white px-2 py-1 rounded-[50%] w-10 h-5 text-xs ${statusColors[status].bg}`}>{telecallToday[status]}</span>
-                {activeTelecall === status && <div className={`active-line mt-1 ${statusColors[status].bg}`}></div>}
+        {/* Lead Summaries */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            { title: "Telecalling Summary", data: telecallToday, active: activeTelecall, setActive: setActiveTelecall },
+            { title: "Walk-in Summary", data: walkinToday, active: activeWalkin, setActive: setActiveWalkin },
+            { title: "Field Work Summary", data: fieldToday, active: activeField, setActive: setActiveField },
+          ].map(section => (
+            <motion.div key={section.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card p-4">
+              <h3 className="text-sm font-bold text-ink mb-3 text-center">{section.title}</h3>
+              <div className="flex justify-center gap-2 md:gap-4 mb-3">
+                {["New", "Converted", "Disqualified"].map(s => (
+                  <StatusBadge key={s} count={section.data[s] || 0} label={s} status={s} active={section.active === s} onClick={() => section.setActive(s)} />
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="border-t w-full mt-6 mb-6"></div>
-          <div className="flex justify-center items-center gap-2">
-            <div className="w-3 h-3 bg-brand-orange rounded-full"></div>
-            <p className="text-slate font-medium text-[15px]">{bottomText(telecallToday[activeTelecall], activeTelecall)}</p>
-          </div>
-        </div>
-
-        <div className="w-[50%] card p-8">
-          <h2 className="text-center text-slate font-semibold text-lg mb-6">Walkin Summary</h2>
-          <div className="flex justify-center gap-6">
-            {["New", "Converted", "Disqualified"].map(status => (
-              <div key={status} onClick={() => setActiveWalkin(status)} className="cursor-pointer text-center">
-                <span className={`reaminder-font ${activeWalkin === status ? statusColors[status].text : "text-gray-700"}`}>{status}</span>
-                <span className={`ml-2 text-white px-2 py-1 rounded-[50%] w-10 h-5 text-xs ${statusColors[status].bg}`}>{walkinToday[status]}</span>
-                {activeWalkin === status && <div className={`active-line mt-1 ${statusColors[status].bg}`}></div>}
+              <div className="border-t border-hairline pt-2 flex items-center justify-center gap-2">
+                <div className={`w-2.5 h-2.5 rounded-full ${st(section.active).bg}`}></div>
+                <p className="text-xs font-semibold text-ink">{bottomText(section.data[section.active] || 0, section.active)}</p>
               </div>
-            ))}
-          </div>
-          <div className="border-t w-full mt-6 mb-6"></div>
-          <div className="flex justify-center items-center gap-2">
-            <div className="w-3 h-3 bg-brand-orange rounded-full"></div>
-            <p className="text-slate font-medium text-[15px]">{bottomText(walkinToday[activeWalkin], activeWalkin)}</p>
-          </div>
+            </motion.div>
+          ))}
         </div>
-      </div>
 
-      <div className="justify-items-center mt-10">
-        <div className="w-[50%] card p-8">
-          <h2 className="text-center text-slate font-semibold text-lg mb-6">Fieldwork Summary</h2>
-          <div className="flex justify-center gap-6">
-            {["New", "Converted", "Disqualified"].map(status => (
-              <div key={status} onClick={() => setActiveField(status)} className="cursor-pointer text-center">
-                <span className={`reaminder-font ${activeField === status ? statusColors[status].text : "text-ink"}`}>{status}</span>
-                <span className={`ml-2 text-white px-2 py-1 rounded-[50%] w-10 h-5 text-xs ${statusColors[status].bg}`}>{fieldToday[status]}</span>
-                {activeField === status && <div className={`active-line mt-1 ${statusColors[status].bg}`}></div>}
+        {/* Remainder & Followup */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="card p-4 md:p-5"><Remainder data={remainderSummary} notes={remainderNotes} /></div>
+          <div className="card p-4 md:p-5"><Followup data={followupSummary} notes={followupNotes} /></div>
+        </div>
+
+        {/* Secondary Metrics */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { icon: CreditCard, title: "Payments", value: totalPayments, sub: `₹${(totalPaymentAmount/1000).toFixed(1)}K`, onClick: () => navigate("/dashboard/payments"), color: "bg-gradient-to-br from-teal-500 to-teal-600" },
+            { icon: Calculator, title: "Estimates", value: totalEstimates, sub: `₹${(totalEstimateValue/100000).toFixed(1)}L`, onClick: () => navigate("/dashboard/estimates"), color: "bg-gradient-to-br from-pink-500 to-pink-600" },
+            { icon: Shield, title: "AMC Active", value: activeAmcContracts, sub: `${totalAmcContracts} total`, onClick: () => navigate("/dashboard/amc"), color: "bg-gradient-to-br from-emerald-500 to-emerald-600" },
+            { icon: Phone, title: "Call Reports", value: todaysCallReports, sub: `${totalCallReports} total`, onClick: () => navigate("/dashboard/call-report"), color: "bg-gradient-to-br from-orange-500 to-orange-600" },
+          ].map(card => (
+            <motion.div key={card.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+              className="card p-3 md:p-4 cursor-pointer transition-all hover:shadow-level-2 active:scale-[0.97]" onClick={card.onClick}
+            >
+              <div className="flex items-center gap-2 md:gap-3 mb-2">
+                <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center ${card.color}`}>
+                  <card.icon className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] md:text-xs text-muted font-medium truncate">{card.title}</p>
+                  <h3 className="text-sm md:text-lg font-bold text-ink truncate"><AnimatedCounter value={card.value} /></h3>
+                </div>
               </div>
-            ))}
-          </div>
-          <div className="border-t w-full mt-6 mb-6"></div>
-          <div className="flex justify-center items-center gap-2">
-            <div className="w-3 h-3 bg-brand-orange rounded-full"></div>
-            <p className="text-slate font-medium text-[15px]">{bottomText(fieldToday[activeField], activeField)}</p>
-          </div>
+              <p className="text-[10px] md:text-xs text-muted truncate pl-[40px] md:pl-[52px]">{card.sub}</p>
+            </motion.div>
+          ))}
         </div>
-      </div>
 
-      <div className="grid grid-cols-2 gap-6 mt-10 w-full">
-        <Remainder data={remainderSummary} notes={remainderNotes} />
-        <Followup data={followupSummary} notes={followupNotes} />
-      </div>
+        {/* Recent Tasks & Activity */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card p-4 md:p-5">
+            <h3 className="text-sm md:text-base font-bold text-ink mb-4 flex items-center gap-2">
+              <ListTodo className="w-4 h-5 text-primary" />
+              Recent Tasks
+              <span className="ml-auto text-xs font-bold text-muted">{completedTasks}/{totalTasksCount} done</span>
+            </h3>
+            <div className="space-y-2 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+              {tasks.length === 0 ? (
+                <p className="text-sm text-muted text-center py-8">No tasks assigned yet</p>
+              ) : tasks.slice(0, 8).map(t => (
+                <div key={t.id} className="flex items-start gap-3 p-3 rounded-lg border border-hairline hover:bg-surface/50 transition-colors cursor-pointer" onClick={() => navigate("/dashboard/task")}>
+                  <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${t.project_status === "Completed" ? "bg-success" : t.project_status === "Process" ? "bg-blue-500" : "bg-orange-500"}`}></div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-ink truncate">{t.task_title || "Task"}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {t.project_name && <span className="text-[10px] text-muted truncate">{t.project_name}</span>}
+                      {t.staff_name && <span className="text-[10px] text-muted">· {t.staff_name}</span>}
+                    </div>
+                  </div>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${t.project_priority === "High" || t.project_priority === "Urgent" ? "bg-error/10 text-error" : t.project_priority === "Low" ? "bg-gray-100 text-muted" : "bg-blue-100 text-blue-600"}`}>{t.project_priority || "Normal"}</span>
+                </div>
+              ))}
+            </div>
+            {tasks.length > 8 && (
+              <button onClick={() => navigate("/dashboard/task")} className="mt-3 text-xs font-semibold text-primary flex items-center gap-1 hover:underline">View all tasks <ChevronRight className="w-3 h-3" /></button>
+            )}
+          </motion.div>
 
-      <div className="grid grid-cols-2 gap-6 mt-10">
-        <div className="card p-6 h-[420px] overflow-y-auto">
-          <h3 className="text-[22px] font-medium text-ink mb-6">Recent Tasks</h3>
-          {tasks.length === 0 ? (
-            <p className="text-sm text-muted">No recent tasks</p>
-          ) : (
-            tasks.map(t => (
-              <div key={t.id} className="flex items-start gap-4 mb-5 p-4 rounded-lg border border-hairline hover:shadow-level-1 transition">
-                <div className={`w-1.5 rounded-full ${t.project_status === "Completed" ? "bg-green-500" : t.project_status === "Process" ? "bg-blue-500" : "bg-orange-500"}`}></div>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-ink mb-1">{t.task_title}</p>
-                  <p className="text-xs text-muted mb-2">Project: <span className="text-ink">{t.project_name}</span></p>
-                  <div className="flex items-center gap-3 text-xs">
-                    <span className={`px-2 py-1 rounded-full font-medium ${t.project_priority === "High" ? "bg-red-100 text-red-600" : t.project_priority === "Urgent" ? "bg-red-200 text-red-700" : t.project_priority === "Low" ? "bg-gray-200 text-gray-600" : "bg-blue-100 text-blue-600"}`}>{t.project_priority}</span>
-                    {t.staff_name && <span className="text-gray-400">👤 {t.staff_name}</span>}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card p-4 md:p-5">
+            <h3 className="text-sm md:text-base font-bold text-ink mb-4 flex items-center gap-2">
+              <Activity className="w-4 h-5 text-primary" />
+              Latest Activity
+            </h3>
+            <div className="space-y-3 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+              {taskActivity.length === 0 ? (
+                <p className="text-sm text-muted text-center py-8">No recent activity</p>
+              ) : taskActivity.slice(0, 10).map(a => (
+                <div key={a.id} className="flex gap-3 p-3 rounded-lg hover:bg-surface/50 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-muted mb-1"><span className="text-primary font-semibold">Activity</span> {new Date(a.created_at).toLocaleString()}</p>
+                    <p className="text-sm text-ink">{a.message}</p>
+                    {a.action && (
+                      <div className="mt-1.5 bg-surface rounded-lg px-3 py-1.5 text-xs inline-block">
+                        <span className="font-semibold text-muted">Action: </span><span className="text-ink">{a.action}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <span className="text-xs font-medium text-gray-500">{t.project_status}</span>
-              </div>
-            ))
-          )}
+              ))}
+            </div>
+          </motion.div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow h-[420px] overflow-y-auto">
-          <h3 className="text-[22px] font-medium text-gray-700 mb-6">Latest Activity</h3>
-          {taskActivity.length === 0 ? (
-            <p className="text-sm text-gray-400">No recent activity</p>
-          ) : (
-            taskActivity.map(a => (
-              <div key={a.id} className="flex gap-4 mb-6">
-                <div className="w-12 h-12 rounded-full bg-blue-200 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-4.33 0-8 2.17-8 4v2h16v-2c0-1.83-3.67-4-8-4z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm text-gray-500 mb-1">
-                    <span className="text-blue-600 font-medium">Customer</span>{" "}
-                    {new Date(a.created_at).toLocaleString()}
-                  </p>
-                  <p className="text-sm text-blue-600 mb-3">{a.message}</p>
-                  {a.action && (
-                    <div className="bg-gray-100 rounded-md px-4 py-2 text-sm w-fit">
-                      <span className="font-semibold text-gray-600">Action:</span>{" "}
-                      <span className="text-gray-700">{a.action}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
+        <div className="text-center text-[10px] text-muted py-2">
+          <RefreshCw className="w-3 h-3 inline mr-1" />
+          Auto-refreshes every 20s &middot; Last: {lastFetch.toLocaleTimeString()}
         </div>
       </div>
     </div>

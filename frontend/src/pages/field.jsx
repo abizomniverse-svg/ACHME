@@ -261,7 +261,7 @@ useEffect(() => {
 }, [open]);
 
    return(
-     <center>
+     <div className="w-full">
         <div className="invoice-heading-tab flex gap-4 justify-between item-center">
         <div>
           <h2 className="text-2xl font-[Times-Roman] text-[25px] font-bold text-[#1694CE]">Field Summary</h2>
@@ -620,7 +620,7 @@ useEffect(() => {
      </div>
    )}
          
-      </center>
+      </div>
     )
 }
 export default Fields;

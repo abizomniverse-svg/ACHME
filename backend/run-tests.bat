@@ -4,7 +4,7 @@ echo ========================================
 echo  ACHME Backend - Running All Tests
 echo ========================================
 echo.
-npx jest --setupFilesAfterEnv=./tests/setup.js --runInBand --detectOpenHandles --forceExit --verbose
+call npx jest --setupFilesAfterEnv=./tests/setup.js --runInBand --detectOpenHandles --forceExit --verbose
 echo.
 echo ========================================
 echo  ALL TESTS COMPLETED

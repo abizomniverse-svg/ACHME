@@ -64,6 +64,7 @@ const NotifCard = ({ n, onMarkRead, onDelete, onArchive, showArchived }) => {
   const config = NOTIF_CONFIG[n.type] || { icon: Bell, color: N.steel, bg: N.surface, label: n.type, desc: "" };
   const Icon = config.icon;
   const isUnread = n.is_read === 0;
+  const source = n._source;
 
   return (
     <div
@@ -74,7 +75,7 @@ const NotifCard = ({ n, onMarkRead, onDelete, onArchive, showArchived }) => {
         borderLeftWidth: "4px",
         borderLeftColor: config.color,
       }}
-      onClick={() => isUnread && !showArchived && onMarkRead?.(n.id)}
+      onClick={() => isUnread && !showArchived && onMarkRead?.(n.id, source)}
     >
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: config.bg }}>
@@ -85,7 +86,7 @@ const NotifCard = ({ n, onMarkRead, onDelete, onArchive, showArchived }) => {
             <p className="text-sm font-semibold" style={{ color: N.ink }}>{config.label}</p>
             {isUnread && !showArchived && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: config.color }} />}
           </div>
-          <p className="text-xs mb-2" style={{ color: N.slate }}>{n.message || n.data?.message || ""}</p>
+          <p className="text-xs mb-2" style={{ color: N.slate }}>{n.message || n.description || n.data?.message || ""}</p>
           <div className="flex items-center gap-3 text-xs" style={{ color: N.stone }}>
             <span className="flex items-center gap-1"><Clock size={10} />{timeAgo(n.created_at || n.timestamp)}</span>
             {n.data?.customerName && <span>Client: {n.data.customerName}</span>}
@@ -96,15 +97,15 @@ const NotifCard = ({ n, onMarkRead, onDelete, onArchive, showArchived }) => {
         </div>
         <div className="flex flex-col gap-1 flex-shrink-0">
           {showArchived ? (
-            <button onClick={(e) => { e.stopPropagation(); onArchive?.(n.id); }} className="p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors" title="Unarchive" style={{ color: N.primary }}>
+            <button onClick={(e) => { e.stopPropagation(); onArchive?.(n.id, source); }} className="p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors" title="Unarchive" style={{ color: N.primary }}>
               <RotateCcw size={14} />
             </button>
           ) : (
             <>
-              <button onClick={(e) => { e.stopPropagation(); onArchive?.(n.id); }} className="p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors" title="Archive" style={{ color: N.steel }}>
+              <button onClick={(e) => { e.stopPropagation(); onArchive?.(n.id, source); }} className="p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors" title="Archive" style={{ color: N.steel }}>
                 <Archive size={14} />
               </button>
-              <button onClick={(e) => { e.stopPropagation(); onDelete?.(n.id); }} className="p-1.5 rounded-lg hover:bg-red-50 cursor-pointer transition-colors" title="Delete" style={{ color: N.error }}>
+              <button onClick={(e) => { e.stopPropagation(); onDelete?.(n.id, source); }} className="p-1.5 rounded-lg hover:bg-red-50 cursor-pointer transition-colors" title="Delete" style={{ color: N.error }}>
                 <Trash2 size={14} />
               </button>
             </>
@@ -159,7 +160,10 @@ const Notifications = () => {
   };
 
   const allNotifs = isAdmin || isSubAdmin
-    ? [...notifications, ...adminNotifications]
+    ? [
+        ...notifications.map(n => ({ ...n, _source: "employee" })),
+        ...adminNotifications.map(n => ({ ...n, _source: "admin" }))
+      ]
     : notifications;
 
   const filteredNotifs = allNotifs
@@ -172,23 +176,23 @@ const Notifications = () => {
     .filter(n => {
       if (!searchTerm) return true;
       const search = searchTerm.toLowerCase();
-      const msg = (n.message || n.data?.message || "").toLowerCase();
+      const msg = (n.message || n.description || n.data?.message || "").toLowerCase();
       const customer = (n.data?.customerName || "").toLowerCase();
       const employee = (n.data?.userName || "").toLowerCase();
       return msg.includes(search) || customer.includes(search) || employee.includes(search);
     })
     .sort((a, b) => new Date(b.created_at || b.timestamp) - new Date(a.created_at || a.timestamp));
 
-  const handleMarkRead = async (id) => {
-    if (isAdmin || isSubAdmin) {
+  const handleMarkRead = async (id, source) => {
+    if (source === "admin" || (isAdmin && source === undefined && adminNotifications.some(n => n.id === id))) {
       await markAdminAsRead(id);
     } else {
       await markAsRead(id);
     }
   };
 
-  const handleArchive = async (id) => {
-    if (isAdmin || isSubAdmin) {
+  const handleArchive = async (id, source) => {
+    if (source === "admin" || (isAdmin && source === undefined && adminNotifications.some(n => n.id === id))) {
       await archiveAdminNotification(id);
     } else {
       await archiveNotification(id);
@@ -196,8 +200,8 @@ const Notifications = () => {
     refreshNotifications();
   };
 
-  const handleUnarchive = async (id) => {
-    if (isAdmin || isSubAdmin) {
+  const handleUnarchive = async (id, source) => {
+    if (source === "admin" || (isAdmin && source === undefined && adminNotifications.some(n => n.id === id))) {
       await unarchiveAdminNotification(id);
     } else {
       await unarchiveNotification(id);
@@ -206,9 +210,9 @@ const Notifications = () => {
     fetchArchived();
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, source) => {
     if (!window.confirm("Delete this notification?")) return;
-    if (isAdmin || isSubAdmin) {
+    if (source === "admin" || (isAdmin && source === undefined && adminNotifications.some(n => n.id === id))) {
       await deleteAdminNotification(id);
     } else {
       await deleteNotification(id);

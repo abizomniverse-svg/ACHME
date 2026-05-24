@@ -21,6 +21,7 @@ const Targets = () => {
   const [updateAmount, setUpdateAmount] = useState("");
   const [updateDesc, setUpdateDesc] = useState("");
   const [history, setHistory] = useState([]);
+  const [submissions, setSubmissions] = useState([]);
   const [graphData, setGraphData] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -82,8 +83,10 @@ const Targets = () => {
       const res = await axios.get(`${API}/api/task/targets/history?user_name=${encodeURIComponent(userName)}&months=12`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
-      setHistory(Array.isArray(res.data) ? res.data : []);
-      const graph = (res.data || []).map(h => ({
+      const monthly = res.data?.monthly || (Array.isArray(res.data) ? res.data : []);
+      setHistory(monthly);
+      setSubmissions(res.data?.submissions || []);
+      const graph = monthly.map(h => ({
         month: h.month_year,
         achieved: parseFloat(h.achieved_count || h.achieved_amount || 0),
         target: parseFloat(h.monthly_target || 0)
@@ -92,6 +95,7 @@ const Targets = () => {
     } catch (err) {
       console.error("Fetch history error:", err);
       setHistory([]);
+      setSubmissions([]);
       setGraphData([]);
     }
   };
@@ -534,7 +538,7 @@ const Targets = () => {
               </div>
 
               <div className="bg-white rounded-xl p-6 shadow">
-                <h3 className="text-lg font-semibold mb-4">Achievement History</h3>
+                <h3 className="text-lg font-semibold mb-4">Monthly Achievement History</h3>
                 <table className="w-full text-sm border-collapse">
                   <thead className="bg-gray-50">
                     <tr className="text-xs uppercase text-gray-500 font-bold border-b">
@@ -567,6 +571,34 @@ const Targets = () => {
                   </tbody>
                 </table>
               </div>
+
+              {submissions.length > 0 && (
+                <div className="bg-white rounded-xl p-6 shadow">
+                  <h3 className="text-lg font-semibold mb-4">Individual Submissions</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm border-collapse">
+                      <thead className="bg-gray-50">
+                        <tr className="text-xs uppercase text-gray-500 font-bold border-b">
+                          <th className="p-2 text-left">Date</th>
+                          <th className="p-2 text-left">Month</th>
+                          <th className="p-2 text-right">Amount</th>
+                          <th className="p-2 text-left">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {submissions.map(s => (
+                          <tr key={s.id} className="border-b hover:bg-gray-50">
+                            <td className="p-2 text-xs text-gray-500">{new Date(s.created_at).toLocaleDateString("en-IN")}</td>
+                            <td className="p-2">{s.month_year}</td>
+                            <td className="p-2 text-right text-green-600 font-medium">₹{formatIndian(s.amount)}</td>
+                            <td className="p-2 text-gray-600 max-w-[200px] truncate" title={s.description}>{s.description || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

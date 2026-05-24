@@ -367,40 +367,91 @@ const CallReport = () => {
     return () => socket.off("data_changed", handler);
   }, [fetchCalls]);
 
-  const searchCustomers = useCallback(async (q) => {
-    setCustomerLoading(true);
-    try {
-      const res = await axios.get(`${API}/api/call-reports/customers`, { params: { q }, ...getAuthConfig() });
-      setCustomerSearchResults(res.data.map(c => ({
-        value: c.customer,
-        customer_id: c.id,
-        label: `${c.customer}${c.company_name ? ` (${c.company_name})` : ""}`,
-        mobile_number: c.mobile_number || "",
-        location_city: c.location_city || "",
-        email: c.email || "",
-        gst_number: c.gst_number || "",
-        company_name: c.company_name || "",
-      })));
-    } catch (err) { console.error(err); }
-    finally { setCustomerLoading(false); }
-  }, []);
+   const searchCustomers = useCallback(async (q = "") => {
+     setCustomerLoading(true);
+     try {
+       const res = await axios.get(`${API}/api/call-reports/customers`, { 
+         params: { q }, 
+         ...getAuthConfig() 
+       });
+       setCustomerSearchResults(res.data.map(c => ({
+         value: c.customer,
+         customer_id: c.id,
+         label: `${c.customer}${c.company_name ? ` (${c.company_name})` : ""}`,
+         mobile_number: c.mobile_number || "",
+         location_city: c.location_city || "",
+         email: c.email || "",
+         gst_number: c.gst_number || "",
+         company_name: c.company_name || "",
+       })));
+     } catch (err) { 
+       console.error(err);
+       // Fallback: if search param not supported, get all and filter client-side
+       try {
+         const res = await axios.get(`${API}/api/call-reports/customers`, getAuthConfig());
+         const filtered = res.data.filter(c => 
+           c.customer.toLowerCase().includes(q.toLowerCase()) ||
+           (c.company_name && c.company_name.toLowerCase().includes(q.toLowerCase()))
+         );
+         setCustomerSearchResults(filtered.map(c => ({
+           value: c.customer,
+           customer_id: c.id,
+           label: `${c.customer}${c.company_name ? ` (${c.company_name})` : ""}`,
+           mobile_number: c.mobile_number || "",
+           location_city: c.location_city || "",
+           email: c.email || "",
+           gst_number: c.gst_number || "",
+           company_name: c.company_name || "",
+         })));
+       } catch (fallbackErr) {
+         console.error(fallbackErr);
+         setCustomerSearchResults([]);
+       }
+     }
+     finally { setCustomerLoading(false); }
+   }, []);
 
-  const searchContracts = useCallback(async (type) => {
-    setContractLoading(true);
-    try {
-      const res = await axios.get(`${API}/api/call-reports/contracts/${type}`, getAuthConfig());
-      setContractSearchResults(res.data.map(c => ({
-        value: c.contract_title,
-        contract_id: c.id,
-        label: `${c.contract_title} - ${c.client_company}`,
-        mobile_number: c.mobile_number || "",
-        location_city: c.location_city || "",
-        email: c.email || "",
-        invoice_value: c.invoice_value || 0,
-      })));
-    } catch (err) { console.error(err); }
-    finally { setContractLoading(false); }
-  }, []);
+   const searchContracts = useCallback(async (type, searchTerm = "") => {
+     setContractLoading(true);
+     try {
+       const res = await axios.get(`${API}/api/call-reports/contracts/${type}`, { 
+         params: { q: searchTerm }, 
+         ...getAuthConfig() 
+       });
+       setContractSearchResults(res.data.map(c => ({
+         value: c.contract_title,
+         contract_id: c.id,
+         label: `${c.contract_title} - ${c.client_company}`,
+         mobile_number: c.mobile_number || "",
+         location_city: c.location_city || "",
+         email: c.email || "",
+         invoice_value: c.invoice_value || 0,
+       })));
+     } catch (err) { 
+       console.error(err);
+       // Fallback: if search param not supported, get all and filter client-side
+       try {
+         const res = await axios.get(`${API}/api/call-reports/contracts/${type}`, getAuthConfig());
+         const filtered = res.data.filter(c => 
+           c.contract_title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           (c.client_company && c.client_company.toLowerCase().includes(searchTerm.toLowerCase()))
+         );
+         setContractSearchResults(filtered.map(c => ({
+           value: c.contract_title,
+           contract_id: c.id,
+           label: `${c.contract_title} - ${c.client_company}`,
+           mobile_number: c.mobile_number || "",
+           location_city: c.location_city || "",
+           email: c.email || "",
+           invoice_value: c.invoice_value || 0,
+         })));
+       } catch (fallbackErr) {
+         console.error(fallbackErr);
+         setContractSearchResults([]);
+       }
+     }
+     finally { setContractLoading(false); }
+   }, []);
 
   const searchBasicContracts = useCallback(async (type) => {
     setBasicContractLoading(true);
@@ -1211,7 +1262,52 @@ const CallReport = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="sm:col-span-2">
                     <FormField label="Customer Name" required>
-                      <SearchableSelect options={customerSearchResults} value={basicForm.customer} onChange={handleBasicCustomerSelect} placeholder="Search customer..." onSearch={(q) => searchCustomers(q)} loading={customerLoading} />
+                      <div className="relative">
+                        <input 
+                          type="text" 
+                          value={basicForm.customer || ""} 
+                          onChange={(e) => {
+                            setBasicForm({ ...basicForm, customer: e.target.value });
+                            if (e.target.value.length >= 2) {
+                              searchCustomers(e.target.value);
+                            } else if (e.target.value.length === 0) {
+                              setCustomerSearchResults([]);
+                            }
+                          }}
+                          onFocus={() => {
+                            // When clicked/focused, show all customers (search with empty string)
+                            if (basicForm.customer.length === 0) {
+                              searchCustomers("");
+                            }
+                          }}
+                          placeholder="Search customer..."
+                          className={inputBase}
+                          style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }}
+                        />
+                        {customerSearchResults.length > 0 && (
+                          <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-card shadow-lg mt-1">
+                            {customerSearchResults.map((customer, idx) => (
+                              <div 
+                                key={idx} 
+                                className="px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-muted/50"
+                                onClick={() => {
+                                  setBasicForm({ 
+                                    ...basicForm, 
+                                    customer: customer.value,
+                                    customer_id: customer.customer_id || "",
+                                    mobile_number: customer.mobile_number || "",
+                                    email: customer.email || "",
+                                    location_city: customer.location_city || ""
+                                  });
+                                  setCustomerSearchResults([]);
+                                }}
+                              >
+                                {customer.label}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </FormField>
                   </div>
                   <FormField label="Mobile Number" icon={PhoneIcon} required>
@@ -1238,13 +1334,60 @@ const CallReport = () => {
                       <option value="2hr">2 Hours</option>
                     </select>
                   </FormField>
-                  {(basicForm.call_type === "AMC" || basicForm.call_type === "ALC") && (
-                    <div className="sm:col-span-2">
-                      <FormField label={`${basicForm.call_type} Contract`} icon={FileText}>
-                        <SearchableSelect options={basicContractSearchResults} value={selectedBasicContract?.value || ""} onChange={handleBasicContractSelect} placeholder={`Select ${basicForm.call_type} contract (auto-fill)...`} loading={basicContractLoading} />
-                      </FormField>
-                    </div>
-                  )}
+      {(basicForm.call_type === "AMC" || basicForm.call_type === "ALC") && (
+        <>
+           <FormField label={`${basicForm.call_type} Contract`} icon={FileText}>
+             <div>
+               <input 
+                 type="text" 
+                 value={basicForm.customer || ""} 
+                          onChange={(e) => {
+                            setBasicForm({ ...basicForm, customer: e.target.value });
+                            if (e.target.value.length >= 2) {
+                              searchContracts(basicForm.call_type, e.target.value);
+                            } else if (e.target.value.length === 0) {
+                              setContractSearchResults([]);
+                              setSelectedContract(null);
+                            }
+                          }}
+                  onFocus={() => {
+                    // When clicked/focused, show all contracts for the selected call type (search with empty string)
+                    if (basicForm.call_type && (basicForm.call_type === "AMC" || basicForm.call_type === "ALC")) {
+                      searchContracts(basicForm.call_type, "");
+                    }
+                  }}
+                 placeholder={`Search ${basicForm.call_type} contract...`}
+                 className={inputBase}
+                 style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }}
+               />
+               {(contractSearchResults.length > 0 || (basicForm.call_type && (basicForm.call_type === "AMC" || basicForm.call_type === "ALC") && basicForm.customer.length > 0)) && (
+                 <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-card shadow-lg mt-1">
+                   {contractSearchResults.map((contract, idx) => (
+                     <div 
+                       key={idx} 
+                       className="px-3 py-2 text-sm cursor-pointer transition-colors hover:bg-muted/50"
+                       onClick={() => {
+                         setBasicForm({ 
+                           ...basicForm, 
+                           customer: contract.label,
+                           customer_id: contract.contract_id || "",
+                           mobile_number: contract.mobile_number || "",
+                           email: contract.email || "",
+                           location_city: contract.location_city || "",
+                           invoice_value: contract.invoice_value || basicForm.invoice_value
+                         });
+                         setContractSearchResults([]);
+                       }}
+                     >
+                       {contract.label}
+                     </div>
+                   ))}
+                 </div>
+               )}
+             </div>
+           </FormField>
+        </>
+      )}
                   <FormField label="Priority" required icon={AlertTriangle}>
                     <SearchableSelect options={PRIORITY_OPTIONS} value={basicForm.priority} onChange={v => setBasicForm({ ...basicForm, priority: v })} placeholder="Select Priority" />
                   </FormField>

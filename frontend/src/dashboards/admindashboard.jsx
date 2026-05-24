@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import "../Styles/tailwind.css";
 import Followup from "../components/followupsummary";
 import Remainder from "../components/remaindersummary";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import {
   departmentCount,
   bottomText,
@@ -16,16 +16,81 @@ import { useNavigate } from "react-router-dom";
 import { useContext } from "react";
 import { DashboardSearchContext, ReminderContext } from "../layout/dashboarlayout";
 import socket from "../socket/socket";
+import { motion } from "framer-motion";
+import {
+  TrendingUp, Users, Phone, MapPin, IndianRupee,
+  FileText, FileSpreadsheet, CreditCard, UserCheck,
+  ClipboardList, Target, Shield, Calculator,
+  Bell, AlertTriangle, CheckCircle, Clock,
+  ArrowUpRight, ArrowDownRight, RefreshCw,
+  Search, Eye, Activity, Calendar, UserPlus,
+  BarChart3, ChevronRight, Building2, Wifi
+} from "lucide-react";
 
 import { API } from "../config/api";
 
 const API_BACKEND = API;
+
+const badgeStyles = {
+  New: { text: "text-orange-500", bg: "bg-orange-500", ring: "ring-2 ring-offset-1 ring-orange-500" },
+  Converted: { text: "text-green-600", bg: "bg-green-600", ring: "ring-2 ring-offset-1 ring-green-600" },
+  Disqualified: { text: "text-red-600", bg: "bg-red-600", ring: "ring-2 ring-offset-1 ring-red-600" },
+};
+
+const st = (key) => badgeStyles[key] || { text: "text-muted", bg: "bg-gray-400", ring: "" };
+
+const LiveDot = () => {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    const id = setInterval(() => setOn(v => !v), 1500);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span className="relative flex h-2.5 w-2.5">
+      <span className={`absolute inline-flex h-full w-full rounded-full bg-green-400 ${on ? "opacity-75" : "opacity-0"} transition-opacity`}></span>
+      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+    </span>
+  );
+};
+
+const AnimatedCounter = ({ value, prefix = "", decimals = 0 }) => {
+  const [display, setDisplay] = useState(Number(value) || 0);
+  const ref = useRef(Number(value) || 0);
+  useEffect(() => {
+    const num = Number(value) || 0;
+    const start = ref.current;
+    if (Math.abs(num - start) < 0.5) { setDisplay(num); ref.current = num; return; }
+    const duration = 350;
+    const t0 = performance.now();
+    let id;
+    const tick = (now) => {
+      const p = Math.min((now - t0) / duration, 1);
+      setDisplay(start + (num - start) * p);
+      if (p < 1) id = requestAnimationFrame(tick); else ref.current = num;
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [value]);
+  return <span>{prefix}{typeof display === "number" ? display.toLocaleString("en-IN", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) : display}</span>;
+};
+
+const StatusBadge = ({ count, label, status, active, onClick }) => {
+  const s = st(status);
+  return (
+    <button onClick={onClick} className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all active:scale-95">
+      <span className={`text-xs font-bold tracking-wide ${active ? s.text : "text-muted"}`}>{label}</span>
+      <span className={`text-white text-xs font-bold px-2.5 py-0.5 rounded-full ${active ? s.bg : "bg-gray-300"} ${active ? s.ring : "opacity-80"}`}>{count}</span>
+      {active && <div className="w-full h-0.5 rounded-full bg-brand-orange mt-0.5"></div>}
+    </button>
+  );
+};
 
 const Dashboard = () => {
   const searchQuery = useContext(DashboardSearchContext) || "";
   const { setReminderData, setReminderNotes } = useContext(ReminderContext);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const fetching = useRef(false);
 
   const [leads, setLeads] = useState([]);
   const [walkins, setWalkins] = useState([]);
@@ -58,800 +123,529 @@ const Dashboard = () => {
 
   const today = getToday();
 
-  /* ================= FETCH ================= */
-  const fetchAll = async () => {
+  const batchSet = useCallback((data) => {
+    setLeads(data[0]); setWalkins(data[1]); setFields(data[2]);
+    setTeam(data[3]); setPerformaInvoices(data[4]);
+    setPendingRegistrations(data[5]); setEscalations(data[6]);
+    setQuotations(data[7]); setInvoices(data[8]); setPayments(data[9]);
+    setClients(data[10]); setTasks(data[11]); setTargets(data[12]);
+    setAmcContracts(data[13]); setServices(data[14]); setCallReports(data[15]);
+    setContracts(data[16]); setEstimates(data[17]);
+    setEstimateInvoices(data[18]); setServiceEstimations(data[19]);
+  }, []);
+
+  const fetchAll = useCallback(async () => {
+    if (fetching.current) return;
+    fetching.current = true;
     setLoading(true);
+    const urls = [`${API_BACKEND}/api/Telecalls`,`${API_BACKEND}/api/Walkins`,`${API_BACKEND}/api/Fields`,
+      `${API_BACKEND}/api/teammember`,`${API_BACKEND}/api/performainvoice`,
+      `${API_BACKEND}/api/auth/pending-users`,`${API_BACKEND}/api/leads/escalations`,
+      `${API_BACKEND}/api/quotations`,`${API_BACKEND}/api/invoice`,`${API_BACKEND}/api/payments`,
+      `${API_BACKEND}/api/client`,`${API_BACKEND}/api/task`,`${API_BACKEND}/api/targets`,
+      `${API_BACKEND}/api/amc`,`${API_BACKEND}/api/services`,`${API_BACKEND}/api/call-reports`,
+      `${API_BACKEND}/api/contract`,`${API_BACKEND}/api/estimate`,
+      `${API_BACKEND}/api/estimate-invoice`,`${API_BACKEND}/api/service-estimation`];
     try {
-      const [t, w, f, tm, pi, pending, esc, quot, inv, pay, cli, task, tgt, amc, svc, cr, cont, est, esti, se] = await Promise.all([
-        axios.get(`${API_BACKEND}/api/Telecalls`),
-        axios.get(`${API_BACKEND}/api/Walkins`),
-        axios.get(`${API_BACKEND}/api/Fields`),
-        axios.get(`${API_BACKEND}/api/teammember`),
-        axios.get(`${API_BACKEND}/api/performainvoice`),
-        axios.get(`${API_BACKEND}/api/auth/pending-users`),
-        axios.get(`${API_BACKEND}/api/leads/escalations`),
-        axios.get(`${API_BACKEND}/api/quotations`),
-        axios.get(`${API_BACKEND}/api/invoice`),
-        axios.get(`${API_BACKEND}/api/payments`),
-        axios.get(`${API_BACKEND}/api/client`),
-        axios.get(`${API_BACKEND}/api/task`),
-        axios.get(`${API_BACKEND}/api/targets`),
-        axios.get(`${API_BACKEND}/api/amc`),
-        axios.get(`${API_BACKEND}/api/services`),
-        axios.get(`${API_BACKEND}/api/call-reports`),
-        axios.get(`${API_BACKEND}/api/contract`),
-        axios.get(`${API_BACKEND}/api/estimate`),
-        axios.get(`${API_BACKEND}/api/estimate-invoice`),
-        axios.get(`${API_BACKEND}/api/service-estimation`)
-      ]);
-      setLeads(t.data);
-      setWalkins(w.data);
-      setFields(f.data);
-      setTeam(tm.data);
-      setPerformaInvoices(pi.data);
-      setPendingRegistrations(pending.data);
-      setEscalations(esc.data);
-      setQuotations(quot.data);
-      setInvoices(inv.data);
-      setPayments(pay.data);
-      setClients(cli.data);
-      setTasks(task.data);
-      setTargets(tgt.data);
-      setAmcContracts(amc.data);
-      setServices(svc.data);
-      setCallReports(cr.data);
-      setContracts(cont.data);
-      setEstimates(est.data);
-      setEstimateInvoices(esti.data);
-      setServiceEstimations(se.data);
-      
+      const res = await Promise.all(urls.map(u => axios.get(u).catch(() => null)));
+      const d = res.map(r => r && r.data ? r.data : []);
+      batchSet(d);
+    } catch (_) {
       try {
-        await axios.post(`${API_BACKEND}/api/leads/check-missed`);
-      } catch (_) {}
-    } catch (err) {
-      console.error("Dashboard fetch error:", err);
-      try {
-        const [t, w, f, tm, pi, pending, esc, quot, inv, pay, cli, task, tgt, amc, svc, cr, cont, est, esti, se] = await Promise.all([
-          axios.get("/api/Telecalls"),
-          axios.get("/api/Walkins"),
-          axios.get("/api/Fields"),
-          axios.get("/api/teammember"),
-          axios.get("/api/performainvoice"),
-          axios.get("/api/auth/pending-users"),
-          axios.get("/api/leads/escalations"),
-          axios.get("/api/quotations"),
-          axios.get("/api/invoice"),
-          axios.get("/api/payments"),
-          axios.get("/api/client"),
-          axios.get("/api/task"),
-          axios.get("/api/targets"),
-          axios.get("/api/amc"),
-          axios.get("/api/services"),
-          axios.get("/api/call-reports"),
-          axios.get("/api/contract"),
-          axios.get("/api/estimate"),
-          axios.get("/api/estimate-invoice"),
-          axios.get("/api/service-estimation")
-        ]);
-        setLeads(t.data);
-        setWalkins(w.data);
-        setFields(f.data);
-        setTeam(tm.data);
-        setPerformaInvoices(pi.data);
-        setPendingRegistrations(pending.data);
-        setEscalations(esc.data);
-        setQuotations(quot.data);
-        setInvoices(inv.data);
-        setPayments(pay.data);
-        setClients(cli.data);
-        setTasks(task.data);
-        setTargets(tgt.data);
-        setAmcContracts(amc.data);
-        setServices(svc.data);
-        setCallReports(cr.data);
-        setContracts(cont.data);
-        setEstimates(est.data);
-        setEstimateInvoices(esti.data);
-        setServiceEstimations(se.data);
-      } catch (err2) {
-        console.error("Fallback also failed:", err2);
-      }
+        const fallback = urls.map(u => u.replace(API_BACKEND, ""));
+        const res = await Promise.all(fallback.map(u => axios.get(u).catch(() => null)));
+        const d = res.map(r => r && r.data ? r.data : []);
+        batchSet(d);
+      } catch (__) {}
     }
     setLoading(false);
     setLastFetch(new Date());
-  };
+    fetching.current = false;
+  }, [batchSet]);
 
-  useEffect(() => { fetchAll(); }, []);
-
-  useEffect(() => {
-    const refresh = () => fetchAll();
-    window.addEventListener("refresh-dashboard", refresh);
-    return () => window.removeEventListener("refresh-dashboard", refresh);
-  }, []);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   useEffect(() => {
-    const handleChange = () => fetchAll();
-    socket.on("data_changed", handleChange);
-    return () => socket.off("data_changed", handleChange);
-  }, []);
+    const fn = () => fetchAll();
+    window.addEventListener("refresh-dashboard", fn);
+    return () => window.removeEventListener("refresh-dashboard", fn);
+  }, [fetchAll]);
 
   useEffect(() => {
-    const interval = setInterval(() => fetchAll(), 10000);
-    return () => clearInterval(interval);
-  }, []);
+    const fn = () => fetchAll();
+    socket.on("data_changed", fn);
+    return () => socket.off("data_changed", fn);
+  }, [fetchAll]);
 
-  /* GET UNIQUE STAFF NAMES FOR FILTER */
-  const uniqueStaff = [...new Set([
+  useEffect(() => {
+    const id = setInterval(() => fetchAll(), 20000);
+    return () => clearInterval(id);
+  }, [fetchAll]);
+
+  const uniqueStaff = useMemo(() => [...new Set([
     ...leads.map(l => l.staff_name).filter(Boolean),
     ...walkins.map(w => w.staff_name).filter(Boolean),
     ...fields.map(f => f.staff_name).filter(Boolean),
     ...team.map(t => t.emp_name || t.first_name).filter(Boolean)
-  ])];
+  ])], [leads, walkins, fields, team]);
 
-  /* TODAY COUNTS - Filter by selected user */
-  const userFilteredLeads = selectedUser === "all" ? leads : leads.filter(l => (l.staff_name || l.created_by || "").toLowerCase().includes(selectedUser.toLowerCase()));
-  const userFilteredWalkins = selectedUser === "all" ? walkins : walkins.filter(w => (w.staff_name || w.created_by || "").toLowerCase().includes(selectedUser.toLowerCase()));
-  const userFilteredFields = selectedUser === "all" ? fields : fields.filter(f => (f.staff_name || f.created_by || "").toLowerCase().includes(selectedUser.toLowerCase()));
+  const safeMatch = (val, query) => String(val || "").toLowerCase().includes(String(query).toLowerCase());
+  const ufl = useMemo(() => selectedUser === "all" ? leads : leads.filter(l => safeMatch(l.staff_name || l.created_by, selectedUser)), [leads, selectedUser]);
+  const ufw = useMemo(() => selectedUser === "all" ? walkins : walkins.filter(w => safeMatch(w.staff_name || w.created_by, selectedUser)), [walkins, selectedUser]);
+  const uff = useMemo(() => selectedUser === "all" ? fields : fields.filter(f => safeMatch(f.staff_name || f.created_by, selectedUser)), [fields, selectedUser]);
 
-  const todaysTelecallsData = userFilteredLeads.filter(l => normalizeDate(l.call_date) === today);
-  const todaysWalkinsData = userFilteredWalkins.filter(w => normalizeDate(w.walkin_date) === today);
-  const todaysFieldsData = userFilteredFields.filter(f => normalizeDate(f.visit_date) === today);
+  const ttd = useMemo(() => ufl.filter(l => normalizeDate(l.call_date) === today), [ufl, today]);
+  const twd = useMemo(() => ufw.filter(w => normalizeDate(w.walkin_date) === today), [ufw, today]);
+  const tfd = useMemo(() => uff.filter(f => normalizeDate(f.visit_date) === today), [uff, today]);
 
-  const telecallToday = departmentCount(todaysTelecallsData, "call_outcome");
-  const walkinToday = departmentCount(todaysWalkinsData, "walkin_status");
-  const fieldToday = departmentCount(todaysFieldsData, "field_outcome");
+  const telecallToday = departmentCount(ttd, "call_outcome");
+  const walkinToday = departmentCount(twd, "walkin_status");
+  const fieldToday = departmentCount(tfd, "field_outcome");
 
-  /* MONTHLY OVERALL */
-  const telecallMonth = departmentCount(leads.filter(l => isThisMonth(l.call_date)), "call_outcome");
-  const walkinMonth = departmentCount(walkins.filter(w => isThisMonth(w.walkin_date)), "walkin_status");
-  const fieldMonth = departmentCount(fields.filter(f => isThisMonth(f.visit_date)), "field_outcome");
+  const telecallMonth = useMemo(() => departmentCount(leads.filter(l => isThisMonth(l.call_date)), "call_outcome"), [leads]);
+  const walkinMonth = useMemo(() => departmentCount(walkins.filter(w => isThisMonth(w.walkin_date)), "walkin_status"), [walkins]);
+  const fieldMonth = useMemo(() => departmentCount(fields.filter(f => isThisMonth(f.visit_date)), "field_outcome"), [fields]);
 
-  const overallMonthly = {
+  const overallMonthly = useMemo(() => ({
     New: telecallMonth.New + walkinMonth.New + fieldMonth.New,
     Converted: telecallMonth.Converted + walkinMonth.Converted + fieldMonth.Converted,
     Disqualified: telecallMonth.Disqualified + walkinMonth.Disqualified + fieldMonth.Disqualified,
-  };
+  }), [telecallMonth, walkinMonth, fieldMonth]);
 
-  const leadTabs = [
-    { label: "New", count: overallMonthly.New, color: "bg-orange-500" },
-    { label: "Converted", count: overallMonthly.Converted, color: "bg-green-600" },
-    { label: "Disqualified", count: overallMonthly.Disqualified, color: "bg-red-600" },
-  ];
-
-  /* FOLLOWUP / REMINDER */
-  const followupNotes = {
+  const followupNotes = useMemo(() => ({
     Todays: leads.filter(l => l.followup_required === "Yes" && normalizeDate(l.followup_date) === today && l.followup_notes),
     Due: leads.filter(l => l.followup_required === "Yes" && normalizeDate(l.followup_date) > today && l.followup_notes),
     Overdue: leads.filter(l => l.followup_required === "Yes" && normalizeDate(l.followup_date) < today && l.followup_notes),
-  };
-  const followupSummary = { Todays: followupNotes.Todays.length, Due: followupNotes.Due.length, Overdue: followupNotes.Overdue.length };
+  }), [leads, today]);
+  const followupSummary = useMemo(() => ({ Todays: followupNotes.Todays.length, Due: followupNotes.Due.length, Overdue: followupNotes.Overdue.length }), [followupNotes]);
 
-  const remainderNotes = {
+  const remainderNotes = useMemo(() => ({
     Todays: leads.filter(l => l.reminder_required === "Yes" && normalizeDate(l.reminder_date) === today && l.reminder_notes),
     Due: leads.filter(l => l.reminder_required === "Yes" && normalizeDate(l.reminder_date) > today && l.reminder_notes),
     Overdue: leads.filter(l => l.reminder_required === "Yes" && normalizeDate(l.reminder_date) < today && l.reminder_notes),
-  };
-  const remainderSummary = { Todays: remainderNotes.Todays.length, Due: remainderNotes.Due.length, Overdue: remainderNotes.Overdue.length };
+  }), [leads, today]);
+  const remainderSummary = useMemo(() => ({ Todays: remainderNotes.Todays.length, Due: remainderNotes.Due.length, Overdue: remainderNotes.Overdue.length }), [remainderNotes]);
 
-  // Push reminder data to navbar
   useEffect(() => {
     setReminderData(remainderSummary);
     setReminderNotes(remainderNotes);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leads]);
+  }, [remainderSummary, remainderNotes, setReminderData, setReminderNotes]);
 
-  const statusColors = {
-    New: { text: "text-orange-500", bg: "bg-orange-500" },
-    Converted: { text: "text-green-600", bg: "bg-green-600" },
-    Disqualified: { text: "text-red-600", bg: "bg-red-600" },
-  };
+  const todaysSales = useMemo(() => performaInvoices.filter(p => normalizeDate(p.invoice_date) === today).reduce((s, p) => s + (Number(p.grand_total) || 0), 0), [performaInvoices, today]);
 
-  /* ===== REAL METRIC CALCULATIONS ===== */
-  const todaysSales = performaInvoices
-    .filter(p => normalizeDate(p.invoice_date) === today)
-    .reduce((sum, p) => sum + (Number(p.grand_total) || 0), 0);
-
-  const yesterday = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
+  const yesterday = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - 1);
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  })();
-  const yesterdaySales = performaInvoices
-    .filter(p => normalizeDate(p.invoice_date) === yesterday)
-    .reduce((sum, p) => sum + (Number(p.grand_total) || 0), 0);
+  }, []);
 
-  const salesChange = yesterdaySales > 0
-    ? (((todaysSales - yesterdaySales) / yesterdaySales) * 100).toFixed(1)
-    : 0;
+  const yesterdaySales = useMemo(() => performaInvoices.filter(p => normalizeDate(p.invoice_date) === yesterday).reduce((s, p) => s + (Number(p.grand_total) || 0), 0), [performaInvoices, yesterday]);
+  const salesChange = useMemo(() => yesterdaySales > 0 ? (((todaysSales - yesterdaySales) / yesterdaySales) * 100).toFixed(1) : todaysSales > 0 ? 100 : 0, [todaysSales, yesterdaySales]);
 
-  const visitorsToday = todaysWalkinsData.length;
-  const visitorsYesterday = walkins.filter(w => normalizeDate(w.walkin_date) === yesterday).length;
-  const visitorsChange = visitorsYesterday > 0
-    ? (((visitorsToday - visitorsYesterday) / visitorsYesterday) * 100).toFixed(1)
-    : 0;
+  const visitorsToday = twd.length;
+  const visitorsYesterday = useMemo(() => walkins.filter(w => normalizeDate(w.walkin_date) === yesterday).length, [walkins, yesterday]);
+  const visitorsChange = useMemo(() => visitorsYesterday > 0 ? (((visitorsToday - visitorsYesterday) / visitorsYesterday) * 100).toFixed(1) : visitorsToday > 0 ? 100 : 0, [visitorsToday, visitorsYesterday]);
 
-  const callsToday = todaysTelecallsData.length;
-  const callsYesterday = leads.filter(l => normalizeDate(l.call_date) === yesterday).length;
-  const callsChange = callsYesterday > 0
-    ? (((callsToday - callsYesterday) / callsYesterday) * 100).toFixed(1)
-    : 0;
+  const callsToday = ttd.length;
+  const callsYesterday = useMemo(() => leads.filter(l => normalizeDate(l.call_date) === yesterday).length, [leads, yesterday]);
+  const callsChange = useMemo(() => callsYesterday > 0 ? (((callsToday - callsYesterday) / callsYesterday) * 100).toFixed(1) : callsToday > 0 ? 100 : 0, [callsToday, callsYesterday]);
 
-  const fieldToday2 = todaysFieldsData.length;
-  const fieldYesterday = fields.filter(f => normalizeDate(f.visit_date) === yesterday).length;
-  const fieldChange = fieldYesterday > 0
-    ? (((fieldToday2 - fieldYesterday) / fieldYesterday) * 100).toFixed(1)
-    : 0;
+  const fieldToday2 = tfd.length;
+  const fieldYesterday = useMemo(() => fields.filter(f => normalizeDate(f.visit_date) === yesterday).length, [fields, yesterday]);
+  const fieldChange = useMemo(() => fieldYesterday > 0 ? (((fieldToday2 - fieldYesterday) / fieldYesterday) * 100).toFixed(1) : fieldToday2 > 0 ? 100 : 0, [fieldToday2, fieldYesterday]);
 
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthNames = useMemo(() => ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"], []);
   const currentYear = new Date().getFullYear();
-  const revenueByMonth = monthNames.map((month, idx) => {
-    const profit = performaInvoices
-      .filter(p => {
-        const d = new Date(p.invoice_date);
-        return d.getFullYear() === currentYear && d.getMonth() === idx;
-      })
-      .reduce((sum, p) => sum + (Number(p.grand_total) || 0), 0);
+  const revenueByMonth = useMemo(() => monthNames.map((month, idx) => {
+    const profit = performaInvoices.filter(p => {
+      const d = new Date(p.invoice_date);
+      return d.getFullYear() === currentYear && d.getMonth() === idx;
+    }).reduce((s, p) => s + (Number(p.grand_total) || 0), 0);
     return { month, profit, loss: Math.round(profit * 0.75) };
-  });
+  }), [performaInvoices, monthNames, currentYear]);
 
-  const monthlyRevenue = performaInvoices
-    .filter(p => isThisMonth(p.invoice_date))
-    .reduce((sum, p) => sum + (Number(p.grand_total) || 0), 0);
+  const monthlyRevenue = useMemo(() => performaInvoices.filter(p => isThisMonth(p.invoice_date)).reduce((s, p) => s + (Number(p.grand_total) || 0), 0), [performaInvoices]);
 
   const totalQuotations = quotations.length;
-  const todaysQuotations = quotations.filter(q => normalizeDate(q.quotation_date) === today).length;
-  const totalQuotationValue = quotations.reduce((sum, q) => sum + (Number(q.grand_total) || 0), 0);
+  const todaysQuotations = useMemo(() => quotations.filter(q => normalizeDate(q.quotation_date) === today).length, [quotations, today]);
+  const totalQuotationValue = useMemo(() => quotations.reduce((s, q) => s + (Number(q.grand_total) || 0), 0), [quotations]);
 
   const totalInvoices = invoices.length;
-  const totalInvoiceValue = invoices.reduce((sum, i) => sum + (Number(i.grand_total) || 0), 0);
-  const todaysInvoices = invoices.filter(i => normalizeDate(i.invoice_date) === today).length;
+  const totalInvoiceValue = useMemo(() => invoices.reduce((s, i) => s + (Number(i.grand_total) || 0), 0), [invoices]);
+  const todaysInvoices = useMemo(() => invoices.filter(i => normalizeDate(i.invoice_date) === today).length, [invoices, today]);
 
   const totalPayments = payments.length;
-  const totalPaymentAmount = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const todaysPayments = payments.filter(p => normalizeDate(p.payment_date) === today).length;
-  const todaysPaymentAmount = payments
-    .filter(p => normalizeDate(p.payment_date) === today)
-    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const totalPaymentAmount = useMemo(() => payments.reduce((s, p) => s + (Number(p.amount) || 0), 0), [payments]);
+  const todaysPayments = useMemo(() => payments.filter(p => normalizeDate(p.payment_date) === today).length, [payments, today]);
+  const todaysPaymentAmount = useMemo(() => payments.filter(p => normalizeDate(p.payment_date) === today).reduce((s, p) => s + (Number(p.amount) || 0), 0), [payments, today]);
 
   const totalClients = clients.length;
-  const newClientsThisMonth = clients.filter(c => isThisMonth(c.created_at)).length;
+  const newClientsThisMonth = useMemo(() => clients.filter(c => isThisMonth(c.created_at)).length, [clients]);
 
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(t => t.project_status === "Completed").length;
-  const pendingTasks = tasks.filter(t => t.project_status === "Process").length;
-  const taskCompletionRate = totalTasks > 0 ? ((completedTasks / totalTasks) * 100).toFixed(1) : 0;
+  const completedTasks = useMemo(() => tasks.filter(t => t.project_status === "Completed").length, [tasks]);
+  const pendingTasks = useMemo(() => tasks.filter(t => t.project_status === "Process").length, [tasks]);
+  const taskCompletionRate = useMemo(() => totalTasks > 0 ? ((completedTasks / totalTasks) * 100).toFixed(1) : 0, [totalTasks, completedTasks]);
 
   const totalTargets = targets.length;
-  const achievedTargets = targets.filter(t => (Number(t.achieved_amount) || 0) >= (Number(t.monthly_target) || 0)).length;
+  const achievedTargets = useMemo(() => targets.filter(t => (Number(t.achieved_amount) || 0) >= (Number(t.monthly_target) || 0)).length, [targets]);
 
   const totalAmcContracts = amcContracts.length;
-  const activeAmcContracts = amcContracts.filter(a => a.status === "Active").length;
-
-  const totalContracts = contracts.length;
-  const activeContracts = contracts.filter(c => c.status === "Active").length;
+  const activeAmcContracts = useMemo(() => amcContracts.filter(a => a.status === "Active").length, [amcContracts]);
 
   const totalEstimates = estimates.length;
-  const totalEstimateValue = estimates.reduce((sum, e) => sum + (Number(e.grand_total) || 0), 0);
+  const totalEstimateValue = useMemo(() => estimates.reduce((s, e) => s + (Number(e.grand_total) || 0), 0), [estimates]);
 
   const totalCallReports = callReports.length;
-  const todaysCallReports = callReports.filter(c => normalizeDate(c.call_date) === today).length;
+  const todaysCallReports = useMemo(() => callReports.filter(c => normalizeDate(c.call_date) === today).length, [callReports, today]);
 
-  const totalServices = services.length;
-
-  /* ===== SEARCH / FILTER CARDS ===== */
   const q = searchQuery.toLowerCase().trim();
-  const cardDefs = [
-    { key: "lead-summary", label: "Lead Summary" },
-    { key: "telecalling-summary", label: "Telecalling Summary" },
-    { key: "walkin-summary", label: "Walkin Summary" },
-    { key: "fieldwork-summary", label: "Fieldwork Summary" },
-    { key: "remainder-summary", label: "Remainder Summary" },
-    { key: "followup-summary", label: "Followup Summary" },
-    { key: "total-sales", label: "Total Sales" },
-    { key: "visitors", label: "Visitors" },
-    { key: "total-calls", label: "Total Calls" },
-    { key: "field-work", label: "Field Work" },
-    { key: "revenue", label: "Revenue" },
-    { key: "team-summary", label: "Team Member Quotation Summary" },
-  ];
+  const anyMatch = q && ["Lead Summary","Telecalling Summary","Walkin Summary","Fieldwork Summary","Remainder Summary","Followup Summary","Total Sales","Visitors","Total Calls","Field Work","Revenue","Team Summary"].some(l => l.toLowerCase().includes(q));
+  const dim = (key, labels) => anyMatch && !labels.some(l => l.toLowerCase().includes(q)) ? "opacity-30 pointer-events-none" : "";
 
-  const matchCard = (key) => {
-    if (!q) return false;
-    const def = cardDefs.find(c => c.key === key);
-    return def ? def.label.toLowerCase().includes(q) : false;
-  };
-
-  const anyMatch = q && cardDefs.some(c => c.label.toLowerCase().includes(q));
-  const highlight = (key) => anyMatch && matchCard(key) ? "ring-2 ring-blue-400 ring-offset-2" : "";
-  const dimmed = (key) => anyMatch && !matchCard(key) ? "opacity-30 pointer-events-none" : "";
-
-  const Card = ({ title, value, percent, sub, positive, cardKey, onClick }) => (
-    <div
-      className={`card stat-card h-[180px] transition-all ${highlight(cardKey)} ${dimmed(cardKey)}`}
+  const StatCard = ({ icon: Icon, title, value, change, sub, positive, color, labels, onClick }) => (
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+      className={`card p-4 md:p-5 cursor-pointer transition-all duration-200 hover:shadow-level-2 active:scale-[0.98] ${dim("stat", labels || [title])}`}
+      onClick={onClick}
     >
-      <p className="text-sm text-slate">{title}</p>
-      <h2 className="text-2xl font-semibold mt-2 text-ink">{value}</h2>
-      <p className={`text-sm mt-1 ${positive ? "text-success" : "text-error"}`}>
-        {percent} <span className="text-ink">{sub}</span>
-      </p>
-      <button
-        className="text-sm mt-4 flex items-center gap-1 text-primary hover:underline"
-        onClick={onClick}
-      >
-        View Report →
-      </button>
-    </div>
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center ${color}`}>
+          <Icon className="w-5 h-5 md:w-6 md:h-6 text-white" />
+        </div>
+        <span className={`flex items-center gap-1 text-xs font-semibold ${positive ? "text-success" : "text-error"}`}>
+          {positive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+          {typeof change === "number" ? `${change >= 0 ? "+" : ""}${change}%` : change}
+        </span>
+      </div>
+      <p className="text-xs md:text-sm text-muted font-medium truncate">{title}</p>
+      <h3 className="text-lg md:text-2xl font-bold text-ink mt-1 truncate">
+        <AnimatedCounter value={value} prefix={title.includes("₹") || title.toLowerCase().includes("sales") ? "₹" : ""} />
+      </h3>
+      <p className="text-xs text-muted mt-1 truncate">{sub}</p>
+    </motion.div>
   );
 
   if (loading) {
     return (
       <div className="w-full p-4 md:p-8 bg-surface flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="text-slate mt-4">Loading live data...</p>
+          <div className="relative mx-auto w-16 h-16">
+            <div className="absolute inset-0 rounded-full border-4 border-primary/20"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-primary animate-spin"></div>
+          </div>
+          <p className="text-muted mt-6 text-sm font-medium">Loading live data...</p>
+          <div className="flex items-center justify-center gap-2 mt-3">
+            <LiveDot />
+            <span className="text-xs text-green-500 font-medium">Real-time connection</span>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full p-4 md:p-8 lead-summary-main bg-surface">
-      <div className="p-4 md:p-6">
-        <div className="flex items-center justify-between">
+    <div className="w-full min-h-screen bg-surface">
+      <div className="max-w-7xl mx-auto p-3 md:p-6 space-y-4 md:space-y-6">
+
+        {/* Welcome Header */}
+        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+          className="card p-4 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4"
+        >
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-ink">
-              Welcome back, <span className="text-primary">{user?.name || "Admin"}</span> 👋
+            <h1 className="text-xl md:text-2xl font-bold text-ink flex items-center gap-2">
+              Welcome back, <span className="text-primary">{user?.name || "Admin"}</span>
             </h1>
-            <p className="text-slate mt-1">
-              Admin Dashboard - Live Data Overview
+            <p className="text-muted text-sm mt-1 flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5" />
+              Admin Dashboard &mdash; Live Data
             </p>
           </div>
-          <div className="text-right text-sm text-muted">
-            <p>Total Team: {team.length}</p>
-            <p>Active Leads: {leads.length + walkins.length + fields.length}</p>
-            <div className="flex items-center justify-end gap-2 mt-1">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              <span className="text-green-500 font-medium text-xs">LIVE</span>
-              <span className="text-xs">{lastFetch.toLocaleTimeString()}</span>
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
+            <button onClick={() => navigate("/dashboard/team")} className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary text-white text-xs font-semibold shadow-sm active:scale-95 transition-all"><UserPlus className="w-4 h-4" /><span className="hidden sm:inline">Add User</span></button>
+            <button onClick={() => navigate("/dashboard/quotation")} className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-brand-orange text-white text-xs font-semibold shadow-sm active:scale-95 transition-all"><FileText className="w-4 h-4" /><span className="hidden sm:inline">Quotation</span></button>
+            <button onClick={() => navigate("/dashboard/clients")} className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-brand-teal text-white text-xs font-semibold shadow-sm active:scale-95 transition-all"><Building2 className="w-4 h-4" /><span className="hidden sm:inline">Client</span></button>
+            <div className="hidden md:flex items-center gap-2 pl-3 border-l border-hairline">
+              <LiveDot />
+              <span className="text-xs text-green-500 font-semibold">LIVE</span>
+              <span className="text-xs text-muted">{lastFetch.toLocaleTimeString()}</span>
             </div>
           </div>
+          <div className="flex md:hidden items-center justify-between w-full">
+            <div className="flex items-center gap-2"><LiveDot /><span className="text-xs text-green-500 font-semibold">LIVE</span></div>
+            <span className="text-xs text-muted">{lastFetch.toLocaleTimeString()}</span>
+          </div>
+        </motion.div>
+
+        {/* Staff Filter */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card p-3 md:p-4">
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
+            <Users className="w-4 h-4 text-muted" />
+            <span className="text-xs font-semibold text-muted">Staff:</span>
+            <div className="flex flex-wrap gap-1.5">
+              <button onClick={() => setSelectedUser("all")} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${selectedUser === "all" ? "bg-primary text-white shadow-sm" : "bg-surface text-muted hover:bg-hairline"}`}>All</button>
+              {uniqueStaff.slice(0, 8).map(name => (
+                <button key={name} onClick={() => setSelectedUser(name)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${selectedUser === name ? "bg-primary text-white shadow-sm" : "bg-surface text-muted hover:bg-hairline"}`}>{name}</button>
+              ))}
+              {uniqueStaff.length > 8 && <span className="text-xs text-muted self-center">+{uniqueStaff.length - 8}</span>}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Search Results */}
+        {searchQuery && searchQuery.trim() !== "" && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card p-4 border-l-4 border-l-primary">
+            <h3 className="text-sm font-semibold text-ink mb-3 flex items-center gap-2"><Search className="w-4 h-4" /> Results for &quot;{searchQuery}&quot;</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[
+                { label: "Clients", data: clients, filter: c => (c.first_name || c.client_company || c.mobile || c.email || c.customer_name || "").toString().toLowerCase().includes(q), nav: "/dashboard/clients", display: c => c.first_name || c.client_company, sub: c => c.mobile || c.email },
+                { label: "Quotations", data: quotations, filter: qt => (qt.customer_name || qt.quotation_id || qt.invoice_id || "").toString().toLowerCase().includes(q), nav: "/dashboard/quotation", display: qt => qt.customer_name || "#"+qt.id, sub: qt => qt.quotation_date ? new Date(qt.quotation_date).toLocaleDateString() : '' },
+                { label: "Leads", data: leads, filter: ld => (ld.customer_name || ld.mobile_number || ld.staff_name || "").toString().toLowerCase().includes(q), nav: "/dashboard/telecalling", display: ld => ld.customer_name || ld.mobile_number, sub: ld => ld.staff_name },
+              ].map(section => (
+                <div key={section.label}>
+                  <div className="text-xs font-bold text-muted uppercase tracking-wider mb-2">{section.label}</div>
+                  {section.data.filter(section.filter).slice(0, 5).map((item, i) => (
+                    <div key={item.id || i} onClick={() => navigate(section.nav)} className="text-sm py-1.5 px-2 rounded-lg border-b border-hairline last:border-0 cursor-pointer hover:bg-surface flex items-center justify-between">
+                      <span className="text-ink font-medium truncate">{section.display(item)}</span>
+                      <span className="text-xs text-muted shrink-0">{section.sub(item)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Pending Approvals */}
+        {pendingRegistrations.length > 0 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card-tint-peach p-4 md:p-5 rounded-xl border border-orange-200">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm md:text-base font-bold text-charcoal flex items-center gap-2">
+                <Bell className="w-4 h-4 text-brand-orange" />
+                Pending Approvals
+                <span className="bg-brand-orange text-white text-xs px-2 py-0.5 rounded-full">{pendingRegistrations.length}</span>
+              </h2>
+              <button onClick={() => navigate("/dashboard/notifications")} className="text-xs text-brand-orange font-bold hover:underline flex items-center gap-1">View All <ChevronRight className="w-3 h-3" /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              {pendingRegistrations.slice(0, 3).map(reg => (
+                <div key={reg.id} className="flex items-center justify-between bg-white/60 backdrop-blur rounded-lg p-3 border border-orange-100">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm text-charcoal truncate">{reg.first_name}</p>
+                    <p className="text-xs text-muted truncate">{reg.email}</p>
+                    <p className="text-[10px] text-muted">{new Date(reg.created_at).toLocaleDateString("en-IN")}</p>
+                  </div>
+                  <span className="badge-tag-orange text-xs shrink-0">Pending</span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          <StatCard icon={IndianRupee} title="Today's Sales" value={todaysSales} change={`${salesChange >= 0 ? "+" : ""}${salesChange}%`} sub={`vs yesterday ₹${Math.abs(todaysSales - yesterdaySales).toLocaleString("en-IN")}`} positive={salesChange >= 0} color="bg-gradient-to-br from-emerald-500 to-emerald-600" labels={["Total Sales"]} onClick={() => navigate("/dashboard/performainvoice")} />
+          <StatCard icon={Users} title="Visitors Today" value={visitorsToday} change={`${visitorsChange >= 0 ? "+" : ""}${visitorsChange}%`} sub={`${visitorsToday - visitorsYesterday >= 0 ? "+" : ""}${visitorsToday - visitorsYesterday} vs yesterday`} positive={visitorsChange >= 0} color="bg-gradient-to-br from-blue-500 to-blue-600" labels={["Visitors"]} onClick={() => navigate("/dashboard/walkins")} />
+          <StatCard icon={Phone} title="Calls Today" value={callsToday} change={`${callsChange >= 0 ? "+" : ""}${callsChange}%`} sub={`${callsToday - callsYesterday >= 0 ? "+" : ""}${callsToday - callsYesterday} vs yesterday`} positive={callsChange >= 0} color="bg-gradient-to-br from-purple-500 to-purple-600" labels={["Total Calls"]} onClick={() => navigate("/dashboard/telecalling")} />
+          <StatCard icon={MapPin} title="Field Visits Today" value={fieldToday2} change={`${fieldChange >= 0 ? "+" : ""}${fieldChange}%`} sub={`${fieldToday2 - fieldYesterday >= 0 ? "+" : ""}${fieldToday2 - fieldYesterday} vs yesterday`} positive={fieldChange >= 0} color="bg-gradient-to-br from-amber-500 to-amber-600" labels={["Field Work"]} onClick={() => navigate("/dashboard/field")} />
         </div>
-      </div>
-      {/* Quick Search Results across entities */}
-      {searchQuery && searchQuery.trim() !== "" && (
-        <div className="max-w-4xl mx-auto mb-6 rounded-xl border p-4 bg-white">
-          <h3 className="text-sm font-semibold mb-2">Search results for "{searchQuery}"</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Clients */}
-            <div>
-              <div className="text-xs text-muted mb-1 font-medium">Clients</div>
-              {clients.filter(c => {
-                const q = searchQuery.toLowerCase();
-                return (c.first_name || c.client_company || c.mobile || c.email || c.customer_name || "").toString().toLowerCase().includes(q);
-              }).slice(0,6).map(c => (
-                <div key={c.id} className="text-sm py-1 border-b last:border-0 cursor-pointer hover:bg-surface" onClick={() => navigate(`/dashboard/clients`)}>
-                  {c.first_name || c.client_company} <span className="text-xs text-muted">{c.mobile || c.email}</span>
-                </div>
-              ))}
-            </div>
 
-            {/* Quotations */}
-            <div>
-              <div className="text-xs text-muted mb-1 font-medium">Quotations / Performa</div>
-              {quotations.filter(qt => {
-                const q = searchQuery.toLowerCase();
-                return (qt.customer_name || qt.quotation_id || qt.invoice_id || qt.id || "").toString().toLowerCase().includes(q);
-              }).slice(0,6).map(qt => (
-                <div key={qt.id} className="text-sm py-1 border-b last:border-0 cursor-pointer hover:bg-surface" onClick={() => navigate(`/dashboard/quotation`)}>
-                  {qt.customer_name || "#"+qt.id} <span className="text-xs text-muted">{qt.quotation_date ? new Date(qt.quotation_date).toLocaleDateString() : ''}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="max-w-4xl mx-auto mt-2 grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Leads */}
-            <div>
-              <div className="text-xs text-muted mb-1 font-medium">Leads</div>
-              {leads.filter(ld => {
-                const q = searchQuery.toLowerCase();
-                return (ld.customer_name || ld.mobile_number || ld.staff_name || ld.id || "").toString().toLowerCase().includes(q);
-              }).slice(0,6).map(ld => (
-                <div key={ld.id || ld._id} className="text-sm py-1 border-b last:border-0 cursor-pointer hover:bg-surface" onClick={() => navigate(`/dashboard/telecalling`)}>
-                  {ld.customer_name || ld.mobile_number} <span className="text-xs text-muted">{ld.staff_name}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Invoices */}
-            <div>
-              <div className="text-xs text-muted mb-1 font-medium">Invoices</div>
-              {invoices.filter(inv => {
-                const q = searchQuery.toLowerCase();
-                return (inv.customer_name || inv.invoice_id || inv.id || inv.mobile_number || "").toString().toLowerCase().includes(q);
-              }).slice(0,6).map(inv => (
-                <div key={inv.id} className="text-sm py-1 border-b last:border-0 cursor-pointer hover:bg-surface" onClick={() => navigate(`/dashboard/invoice`)}>
-                  {inv.customer_name || `#${inv.id}`} <span className="text-xs text-muted">{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString() : ''}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Tasks */}
-            <div>
-              <div className="text-xs text-muted mb-1 font-medium">Tasks</div>
-              {tasks.filter(tk => {
-                const q = searchQuery.toLowerCase();
-                return (tk.project_name || tk.project_status || tk.task_title || tk.customer_name || tk.id || "").toString().toLowerCase().includes(q);
-              }).slice(0,6).map(tk => (
-                <div key={tk.id} className="text-sm py-1 border-b last:border-0 cursor-pointer hover:bg-surface" onClick={() => navigate(`/dashboard/task`)}>
-                  {tk.project_name || tk.task_title || `#${tk.id}`} <span className="text-xs text-muted">{tk.project_status}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="mt-3 text-xs text-muted">Click a result to open the related list (use list search for exact item view).</div>
-        </div>
-      )}
-
-      {/* Pending Registration Notifications */}
-      {pendingRegistrations.length > 0 && (
-        <div className="max-w-4xl mx-auto mb-6 rounded-xl border border-hairline-strong card-tint-peach p-5">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-base font-bold text-charcoal flex items-center gap-2">
-              ⏳ Pending User Approvals
-              <span className="badge badge-orange">{pendingRegistrations.length}</span>
+        {/* Lead Summary */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card p-4 md:p-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <h2 className="text-base md:text-lg font-bold text-ink flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-primary" />
+              Lead Summary {selectedUser !== "all" && <span className="text-sm text-primary font-medium">&mdash; {selectedUser}</span>}
             </h2>
-            <button
-              onClick={() => navigate("/dashboard/notifications")}
-              className="text-xs text-brand-orange font-bold hover:underline"
-            >
-              View All →
-            </button>
-          </div>
-          <div className="space-y-2">
-            {pendingRegistrations.slice(0, 3).map(reg => (
-              <div key={reg.id} className="flex items-center justify-between bg-canvas rounded-lg p-3 border border-hairline-soft">
-                <div>
-                  <p className="font-medium text-ink">{reg.first_name} <span className="text-muted text-sm">({reg.email})</span></p>
-                  <p className="text-xs text-muted">Requested: {new Date(reg.created_at).toLocaleDateString("en-IN")}</p>
-                </div>
-                <span className="badge-tag-orange">Pending</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-
-      {/* LEAD SUMMARY CARD */}
-      <div className={`max-w-4xl mx-auto p-6 md:p-8 rounded-xl card transition-all ${highlight("lead-summary")} ${dimmed("lead-summary")}`}>
-        <h2 className="text-center font-semibold text-lg mb-6 text-ink">
-          Lead Summary {selectedUser !== "all" && <span className="text-primary">- {selectedUser}</span>}
-        </h2>
-        <div className="flex justify-center gap-8 md:gap-14">
-          {leadTabs.map((item) => (
-            <div key={item.label} className="cursor-pointer text-center" onClick={() => setActiveTab1(item.label)}>
-              <span className={`reaminder-font ${activeTab1 === item.label ? "text-orange-500" : ""}`}>{item.label}</span>
-              <span className={`ml-2 text-white px-2 py-[2px] text-sm rounded-full ${item.color}`}>{item.count}</span>
-              {activeTab1 === item.label && <div className="active-line"></div>}
+            <div className="flex items-center gap-2 md:gap-4">
+              {["New", "Converted", "Disqualified"].map(item => (
+                <StatusBadge key={item} count={overallMonthly[item]} label={item} status={item} active={activeTab1 === item} onClick={() => setActiveTab1(item)} />
+              ))}
             </div>
+          </div>
+          <div className="border-t border-hairline pt-4 flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${st(activeTab1).bg}`}></div>
+            <p className="text-sm md:text-base font-semibold text-ink">{bottomText(overallMonthly[activeTab1], activeTab1)}</p>
+          </div>
+        </motion.div>
+
+        {/* Telecalling / Walkin / Field */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            { title: "Telecalling Summary", data: telecallToday, active: activeTelecall, setActive: setActiveTelecall },
+            { title: "Walk-in Summary", data: walkinToday, active: activeWalkin, setActive: setActiveWalkin },
+            { title: "Field Work Summary", data: fieldToday, active: activeField, setActive: setActiveField },
+          ].map(section => (
+            <motion.div key={section.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card p-4 md:p-5">
+              <h3 className="text-sm font-bold text-ink mb-4 text-center">{section.title}</h3>
+              <div className="flex justify-center gap-3 md:gap-6 mb-4">
+                {["New", "Converted", "Disqualified"].map(s => (
+                  <StatusBadge key={s} count={section.data[s] || 0} label={s} status={s} active={section.active === s} onClick={() => section.setActive(s)} />
+                ))}
+              </div>
+              <div className="border-t border-hairline pt-3 flex items-center justify-center gap-2">
+                <div className={`w-2.5 h-2.5 rounded-full ${st(section.active).bg}`}></div>
+                <p className="text-xs font-semibold text-ink">{bottomText(section.data[section.active] || 0, section.active)}</p>
+              </div>
+            </motion.div>
           ))}
         </div>
-        <div className="border-t w-full mt-6 mb-6"></div>
-        <div className="flex justify-center items-center gap-2">
-          <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-          <p className="font-medium text-[15px]">{bottomText(overallMonthly[activeTab1], activeTab1)}</p>
-        </div>
-      </div>
 
-      {/* Telecalling + Walkin */}
-      <div className="flex flex-col md:flex-row mt-10 gap-8 justify-center">
-        <div className={`w-full md:w-[45%] bg-shell text-shell-text p-8 rounded-xl shadow-lg transition-all ${highlight("telecalling-summary")} ${dimmed("telecalling-summary")}`}>
-          <h2 className="text-center font-semibold text-lg mb-6">Tellecalling Summary</h2>
-          <div className="flex justify-center gap-6 md:gap-10">
-            {["New", "Converted", "Disqualified"].map(status => (
-              <div key={status} onClick={() => setActiveTelecall(status)} className="cursor-pointer text-center">
-                <span className={`reaminder-font ${activeTelecall === status ? statusColors[status].text : ""}`}>{status}</span>
-                <span className={`ml-2 text-white px-2 py-1 rounded-[50%] w-10 h-5 text-xs ${statusColors[status].bg}`}>{telecallToday[status]}</span>
-                {activeTelecall === status && <div className={`active-line mt-1 ${statusColors[status].bg}`}></div>}
-              </div>
+        {/* Remainder & Followup */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="card p-4 md:p-5"><Remainder data={remainderSummary} notes={remainderNotes} /></div>
+          <div className="card p-4 md:p-5"><Followup data={followupSummary} notes={followupNotes} /></div>
+        </div>
+
+        {/* Metrics + Revenue */}
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 md:gap-6">
+          <div className="xl:col-span-3 grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
+            {[
+              { icon: FileText, title: "Quotations", value: totalQuotations, sub: `₹${(totalQuotationValue/100000).toFixed(1)}L · ${todaysQuotations} today`, onClick: () => navigate("/dashboard/quotation"), color: "bg-gradient-to-br from-violet-500 to-violet-600" },
+              { icon: FileSpreadsheet, title: "Invoices", value: totalInvoices, sub: `₹${(totalInvoiceValue/100000).toFixed(1)}L · ${todaysInvoices} today`, onClick: () => navigate("/dashboard/invoice"), color: "bg-gradient-to-br from-sky-500 to-sky-600" },
+              { icon: CreditCard, title: "Payments", value: totalPayments, sub: `₹${(todaysPaymentAmount/1000).toFixed(1)}K today`, onClick: () => navigate("/dashboard/payments"), color: "bg-gradient-to-br from-teal-500 to-teal-600" },
+              { icon: UserCheck, title: "Clients", value: totalClients, sub: `${newClientsThisMonth} new this month`, onClick: () => navigate("/dashboard/clients"), color: "bg-gradient-to-br from-indigo-500 to-indigo-600" },
+              { icon: ClipboardList, title: "Tasks", value: totalTasks, sub: `${completedTasks} done · ${taskCompletionRate}% rate`, onClick: () => navigate("/dashboard/task"), color: "bg-gradient-to-br from-rose-500 to-rose-600" },
+              { icon: Target, title: "Targets", value: totalTargets, sub: `${achievedTargets} achieved · ${totalTargets - achievedTargets} left`, onClick: () => navigate("/dashboard/targets"), color: "bg-gradient-to-br from-cyan-500 to-cyan-600" },
+              { icon: Shield, title: "AMC Contracts", value: totalAmcContracts, sub: `${activeAmcContracts} active`, onClick: () => navigate("/dashboard/amc"), color: "bg-gradient-to-br from-emerald-500 to-emerald-600" },
+              { icon: Calculator, title: "Estimates", value: totalEstimates, sub: `₹${(totalEstimateValue/100000).toFixed(1)}L total`, onClick: () => navigate("/dashboard/estimates"), color: "bg-gradient-to-br from-pink-500 to-pink-600" },
+              { icon: Phone, title: "Call Reports", value: totalCallReports, sub: `${todaysCallReports} today`, onClick: () => navigate("/dashboard/call-report"), color: "bg-gradient-to-br from-orange-500 to-orange-600" },
+            ].map(card => (
+              <motion.div key={card.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                className="card p-3 md:p-4 cursor-pointer transition-all duration-200 hover:shadow-level-2 active:scale-[0.97]" onClick={card.onClick}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center ${card.color}`}>
+                    <card.icon className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted font-medium truncate">{card.title}</p>
+                    <h3 className="text-base md:text-lg font-bold text-ink truncate"><AnimatedCounter value={card.value} /></h3>
+                  </div>
+                </div>
+                <p className="text-[10px] md:text-xs text-muted truncate pl-[44px]">{card.sub}</p>
+              </motion.div>
             ))}
           </div>
-          <div className="border-t w-full mt-6 mb-6"></div>
-          <div className="flex justify-center items-center gap-2">
-            <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-            <p className="font-medium text-[15px]">{bottomText(telecallToday[activeTelecall], activeTelecall)}</p>
-          </div>
-        </div>
 
-        <div className={`w-full md:w-[50%] p-8 rounded-xl bg-shell text-shell-text shadow-lg transition-all ${highlight("walkin-summary")} ${dimmed("walkin-summary")}`}>
-          <h2 className="text-center font-semibold text-lg mb-6">Walkin Summary</h2>
-          <div className="flex justify-center gap-4 md:gap-6">
-            {["New", "Converted", "Disqualified"].map(status => (
-              <div key={status} onClick={() => setActiveWalkin(status)} className="cursor-pointer text-center">
-                <span className={`reaminder-font ${activeWalkin === status ? statusColors[status].text : ""}`}>{status}</span>
-                <span className={`ml-2 text-white px-2 py-1 rounded-[50%] w-10 h-5 text-xs ${statusColors[status].bg}`}>{walkinToday[status]}</span>
-                {activeWalkin === status && <div className={`active-line mt-1 ${statusColors[status].bg}`}></div>}
+          {/* Revenue Chart */}
+          <div className="xl:col-span-2">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card p-4 md:p-6 h-full">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-sm md:text-base font-bold text-ink">Revenue</h2>
+                  <p className="text-xl md:text-2xl font-bold text-primary mt-1">
+                    <AnimatedCounter value={monthlyRevenue} prefix="₹" />
+                    <span className="text-xs text-success font-semibold ml-2">&uarr; Monthly</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted">
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-500"></span> Profit</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-200"></span> Projected</span>
+                </div>
               </div>
-            ))}
-          </div>
-          <div className="border-t w-full mt-6 mb-6"></div>
-          <div className="flex justify-center items-center gap-2">
-            <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-            <p className="font-medium text-[15px]">{bottomText(walkinToday[activeWalkin], activeWalkin)}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Fieldwork Summary */}
-      <div className="flex justify-center mt-10">
-        <div className={`w-full md:w-[50%] p-8 bg-shell text-shell-text rounded-xl shadow-lg transition-all ${highlight("fieldwork-summary")} ${dimmed("fieldwork-summary")}`}>
-          <h2 className="text-center font-semibold text-lg mb-6">Fieldwork Summary</h2>
-          <div className="flex justify-center gap-4 md:gap-6">
-            {["New", "Converted", "Disqualified"].map(status => (
-              <div key={status} onClick={() => setActiveField(status)} className="cursor-pointer text-center">
-                <span className={`reaminder-font ${activeField === status ? statusColors[status].text : ""}`}>{status}</span>
-                <span className={`ml-2 text-white px-2 py-1 rounded-[50%] w-10 h-5 text-xs ${statusColors[status].bg}`}>{fieldToday[status]}</span>
-                {activeField === status && <div className={`active-line mt-1 ${statusColors[status].bg}`}></div>}
+              <div className="h-[200px] md:h-[280px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={revenueByMonth} barGap={4}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e3df" />
+                    <XAxis dataKey="month" stroke="#bbb8b1" fontSize={11} tickLine={false} />
+                    <YAxis stroke="#bbb8b1" fontSize={11} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e5e3df", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} />
+                    <Bar dataKey="profit" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="loss" fill="#c7d2fe" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
-            ))}
-          </div>
-          <div className="border-t w-full mt-6 mb-6"></div>
-          <div className="flex justify-center items-center gap-2">
-            <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-            <p className="font-medium text-[15px]">{bottomText(fieldToday[activeField], activeField)}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Remainder + Followup */}
-      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 mt-10 w-full`}>
-        <div className={`transition-all ${highlight("remainder-summary")} ${dimmed("remainder-summary")} rounded-xl`}>
-          <Remainder data={remainderSummary} notes={remainderNotes} />
-        </div>
-        <div className={`transition-all ${highlight("followup-summary")} ${dimmed("followup-summary")} rounded-xl`}>
-          <Followup data={followupSummary} notes={followupNotes} />
-        </div>
-      </div>
-
-      {/* Metric Cards + Revenue */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-9 mt-20">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
-          <Card
-            cardKey="total-sales"
-            title="Total Sales (Today)"
-            value={`₹${todaysSales.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            percent={`${salesChange >= 0 ? "↑" : "↓"} ${Math.abs(salesChange)}%`}
-            sub={`${todaysSales >= yesterdaySales ? "+" : ""}₹${(todaysSales - yesterdaySales).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} today`}
-            positive={salesChange >= 0}
-            onClick={() => navigate("/dashboard/performainvoice")}
-          />
-          <Card
-            cardKey="visitors"
-            title="Visitors (Today)"
-            value={visitorsToday.toLocaleString()}
-            percent={`${visitorsChange >= 0 ? "↑" : "↓"} ${Math.abs(visitorsChange)}%`}
-            sub={`${visitorsToday - visitorsYesterday >= 0 ? "+" : ""}${visitorsToday - visitorsYesterday} today`}
-            positive={visitorsChange >= 0}
-            onClick={() => navigate("/dashboard/walkins")}
-          />
-          <Card
-            cardKey="total-calls"
-            title="Total Calls (Today)"
-            value={callsToday.toLocaleString()}
-            percent={`${callsChange >= 0 ? "↑" : "↓"} ${Math.abs(callsChange)}%`}
-            sub={`${callsToday - callsYesterday >= 0 ? "+" : ""}${callsToday - callsYesterday} today`}
-            positive={callsChange >= 0}
-            onClick={() => navigate("/dashboard/telecalling")}
-          />
-          <Card
-            cardKey="field-work"
-            title="Field Work (Today)"
-            value={fieldToday2.toLocaleString()}
-            percent={`${fieldChange >= 0 ? "↑" : "↓"} ${Math.abs(fieldChange)}%`}
-            sub={`${fieldToday2 - fieldYesterday >= 0 ? "+" : ""}${fieldToday2 - fieldYesterday} today`}
-            positive={fieldChange >= 0}
-            onClick={() => navigate("/dashboard/field")}
-          />
-          <Card
-            cardKey="quotations"
-            title="Quotations"
-            value={totalQuotations.toLocaleString()}
-            percent={`₹${totalQuotationValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            sub={`${todaysQuotations} today`}
-            positive={true}
-            onClick={() => navigate("/dashboard/quotation")}
-          />
-          <Card
-            cardKey="invoices"
-            title="Invoices"
-            value={totalInvoices.toLocaleString()}
-            percent={`₹${totalInvoiceValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            sub={`${todaysInvoices} today`}
-            positive={true}
-            onClick={() => navigate("/dashboard/invoice")}
-          />
-          <Card
-            cardKey="payments"
-            title="Payments"
-            value={totalPayments.toLocaleString()}
-            percent={`₹${totalPaymentAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            sub={`₹${todaysPaymentAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} today`}
-            positive={true}
-            onClick={() => navigate("/dashboard/payment")}
-          />
-          <Card
-            cardKey="clients"
-            title="Total Clients"
-            value={totalClients.toLocaleString()}
-            percent={`${newClientsThisMonth} new this month`}
-            sub={`Active clients`}
-            positive={true}
-            onClick={() => navigate("/dashboard/clients")}
-          />
-          <Card
-            cardKey="tasks"
-            title="Tasks"
-            value={totalTasks.toLocaleString()}
-            percent={`${taskCompletionRate}% completion rate`}
-            sub={`${completedTasks} completed / ${pendingTasks} in progress`}
-            positive={true}
-            onClick={() => navigate("/dashboard/task")}
-          />
-          <Card
-            cardKey="targets"
-            title="Targets"
-            value={totalTargets.toLocaleString()}
-            percent={`${achievedTargets} achieved`}
-            sub={`${totalTargets - achievedTargets} remaining`}
-            positive={achievedTargets > totalTargets / 2}
-            onClick={() => navigate("/dashboard/target")}
-          />
-          <Card
-            cardKey="amc"
-            title="AMC Contracts"
-            value={totalAmcContracts.toLocaleString()}
-            percent={`${activeAmcContracts} active`}
-            sub={`Service contracts`}
-            positive={true}
-            onClick={() => navigate("/dashboard/amc")}
-          />
-          <Card
-            cardKey="estimates"
-            title="Estimates"
-            value={totalEstimates.toLocaleString()}
-            percent={`₹${totalEstimateValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            sub={`Total estimate value`}
-            positive={true}
-            onClick={() => navigate("/dashboard/estimate")}
-          />
-        </div>
-
-        {/* Revenue Chart */}
-        <div className={`mt-0 lg:mt-20 transition-all ${highlight("revenue")} ${dimmed("revenue")}`}>
-          <div className="rounded-xl p-6 bg-shell text-shell-text shadow-lg w-full h-[400px]">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h2 className="text-lg font-semibold">Revenue</h2>
-                <p className="text-2xl font-bold">
-                  ₹{monthlyRevenue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  <span className="text-green-400 text-sm ml-2">↑ Monthly</span>
-                </p>
-              </div>
-              <select className="bg-orange-500 text-white px-3 py-2 rounded-md outline-none">
-                <option>Month</option>
-              </select>
-            </div>
-            <div className="flex gap-4 mb-3 text-sm">
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-indigo-500 rounded-full"></span> Profit
-              </span>
-              <span className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-gray-300 rounded-full"></span> Loss
-              </span>
-            </div>
-            <div className="h-[270px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={revenueByMonth}>
-                  <XAxis dataKey="month" stroke="#aaa" />
-                  <YAxis stroke="#aaa" />
-                  <Tooltip />
-                  <Bar dataKey="profit" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="loss" fill="#c7d2fe" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            </motion.div>
           </div>
         </div>
 
-        {/* Team Section */}
-        <div className={`mt-10 mb-10 transition-all ${highlight("team-summary")} ${dimmed("team-summary")}`}>
-          <div className="rounded-xl p-6 bg-shell text-shell-text shadow-lg w-full min-h-[380px] overflow-hidden flex flex-col">
-            <h2 className="text-lg font-semibold mb-4 text-center border-b pb-2 uppercase tracking-wider">Team Member Quotation Summary</h2>
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-              <table className="w-full text-center border-collapse">
-                <thead className="sticky top-0 bg-[#2d3748] z-10">
-                  <tr className="text-xs uppercase text-gray-400 font-bold border-b border-gray-700">
-                    <th className="p-3">Team Member Name</th>
-                    <th className="p-3">Quotation Count</th>
+        {/* Team Summary */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card p-4 md:p-6">
+          <h2 className="text-base md:text-lg font-bold text-ink mb-4 flex items-center gap-2">
+            <Users className="w-5 h-5 text-primary" />
+            Team Member Summary
+          </h2>
+          <div className="overflow-x-auto -mx-4 md:-mx-6">
+            <div className="inline-block min-w-full align-middle px-4 md:px-6">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-hairline">
+                    <th className="py-3 text-left text-xs font-bold text-muted uppercase tracking-wider">Member</th>
+                    <th className="py-3 text-center text-xs font-bold text-muted uppercase tracking-wider">Quotations</th>
+                    <th className="py-3 text-right text-xs font-bold text-muted uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {team.length === 0 ? (
-                    <tr><td colSpan="2" className="py-10 text-gray-500 italic">No team data available</td></tr>
-                  ) : (
-                    team.map((t, idx) => (
-                      <tr key={idx} className="border-b border-gray-700 hover:bg-white/5 transition">
-                        <td className="p-4 font-medium">{t.first_name} {t.last_name}</td>
-                        <td className="p-4">
-                          <span className="bg-blue-600/20 text-blue-400 px-4 py-1.5 rounded-full text-sm font-bold ring-1 ring-blue-500/30">
-                            {t.quotation_count || 0}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                    <tr><td colSpan="3" className="py-10 text-center text-muted italic">No team data available</td></tr>
+                  ) : team.slice(0, 10).map((t, idx) => (
+                    <tr key={idx} className="border-b border-hairline-soft hover:bg-surface/50 transition-colors">
+                      <td className="py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">{(t.first_name || "U")[0].toUpperCase()}</div>
+                          <span className="font-semibold text-ink text-sm">{t.first_name} {t.last_name}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 text-center">
+                        <span className="inline-flex items-center justify-center min-w-[32px] px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold">{t.quotation_count || 0}</span>
+                      </td>
+                      <td className="py-3 text-right">
+                        <button onClick={() => navigate("/dashboard/team")} className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 ml-auto">View <ChevronRight className="w-3 h-3" /></button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
-        </div>
-      </div>
+        </motion.div>
 
-    {/* ── Escalation Notifications Panel (Admin Only) ─────────────────── */}
-    {escalations.length > 0 && (
-      <div className="mt-8 rounded-xl border border-red-200 bg-red-50/40 p-5 shadow-sm">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-base font-bold text-red-700 flex items-center gap-2">
-            ⚠ Escalation Alerts
-            <span className="bg-red-600 text-white text-xs px-2 py-0.5 rounded-full">{escalations.length}</span>
-          </h2>
-          <button onClick={() => setShowEscalations(p => !p)} className="text-xs text-red-600 font-bold hover:underline">
-            {showEscalations ? "Hide" : "Show All"}
-          </button>
-        </div>
-        {showEscalations && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="text-xs font-bold text-red-600 uppercase border-b border-red-200">
-                  <th className="px-3 py-2 text-left">Lead Name</th>
-                  <th className="px-3 py-2">Mobile</th>
-                  <th className="px-3 py-2">Staff</th>
-                  <th className="px-3 py-2">Last Follow-up</th>
-                  <th className="px-3 py-2">Missed</th>
-                  <th className="px-3 py-2">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {escalations.map(esc => (
-                  <tr key={esc.id} className="border-b border-red-100 hover:bg-red-50">
-                    <td className="px-3 py-2 font-semibold text-gray-800">{esc.customer_name}</td>
-                    <td className="px-3 py-2 text-center text-gray-600">{esc.mobile_number}</td>
-                    <td className="px-3 py-2 text-center text-gray-600">{esc.staff_name || "---"}</td>
-                    <td className="px-3 py-2 text-center text-gray-500 text-xs">{esc.last_followup_date ? new Date(esc.last_followup_date).toLocaleDateString("en-IN") : "---"}</td>
-                    <td className="px-3 py-2 text-center">
-                      <span className="bg-red-600 text-white text-xs px-2 py-0.5 rounded-full font-bold">{esc.missed_count}</span>
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        onClick={async () => {
-                          await axios.put(`/api/leads/escalations/${esc.id}/resolve`);
-                          setEscalations(prev => prev.filter(x => x.id !== esc.id));
-                        }}
-                        className="text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 font-bold"
-                      >Resolve</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {/* Escalations */}
+        {escalations.length > 0 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card p-4 md:p-5 border-l-4 border-l-error">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm md:text-base font-bold text-error flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                Escalation Alerts
+                <span className="bg-error text-white text-xs px-2 py-0.5 rounded-full">{escalations.length}</span>
+              </h2>
+              <button onClick={() => setShowEscalations(p => !p)} className="text-xs font-bold text-error hover:underline">{showEscalations ? "Hide" : "Show All"}</button>
+            </div>
+            {showEscalations && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-error/20">
+                      <th className="px-2 py-2 text-left text-xs font-bold text-error">Lead</th>
+                      <th className="px-2 py-2 text-center text-xs font-bold text-error">Mobile</th>
+                      <th className="px-2 py-2 text-center text-xs font-bold text-error">Staff</th>
+                      <th className="px-2 py-2 text-center text-xs font-bold text-error">Missed</th>
+                      <th className="px-2 py-2 text-right text-xs font-bold text-error">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {escalations.map(esc => (
+                      <tr key={esc.id} className="border-b border-error/10 hover:bg-error/5">
+                        <td className="px-2 py-2.5 font-semibold text-ink text-sm">{esc.customer_name}</td>
+                        <td className="px-2 py-2.5 text-center text-muted text-xs">{esc.mobile_number}</td>
+                        <td className="px-2 py-2.5 text-center text-muted text-xs">{esc.staff_name || "---"}</td>
+                        <td className="px-2 py-2.5 text-center"><span className="bg-error text-white text-xs font-bold px-2 py-0.5 rounded-full">{esc.missed_count}</span></td>
+                        <td className="px-2 py-2.5 text-right">
+                          <button onClick={async () => { await axios.put(`${API_BACKEND}/api/leads/escalations/${esc.id}/resolve`); setEscalations(prev => prev.filter(x => x.id !== esc.id)); }} className="text-xs bg-success text-white px-3 py-1.5 rounded-lg font-semibold">Resolve</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </motion.div>
         )}
+
+        <div className="text-center text-[10px] text-muted py-2">
+          <RefreshCw className="w-3 h-3 inline mr-1" />
+          Auto-refreshes every 20s &middot; Last: {lastFetch.toLocaleTimeString()}
+        </div>
       </div>
-    )}
     </div>
   );
 };

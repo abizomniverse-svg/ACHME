@@ -157,7 +157,7 @@ const deletePayment = async (id) => {
       
 
     return(
-    <center>
+    <div className="w-full">
 
         <div className="payment-heading-tab flex gap-4 justify-between item-center">
         <div>
@@ -214,7 +214,7 @@ const deletePayment = async (id) => {
                             <form onSubmit={savePayment} className=" payment-form p-2 space-y-6 relative">
 
                          {/* Invoice ID */}
-                         <div className="grid grid-cols-[180px_1fr] items-center gap-8">
+                         <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] items-center gap-8">
                           <label className="text-sm text-gray-600 text-left">
                              Invoice ID <span className="text-red-500">*</span></label>
 
@@ -240,7 +240,7 @@ const deletePayment = async (id) => {
 
 
                 {/* Amount */}
-                 <div className="grid grid-cols-[180px_1fr] items-center gap-8">
+                 <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] items-center gap-8">
                  <label className="text-sm text-gray-600 text-left">
                    Amount <span className="text-red-500">*</span>
                 </label>
@@ -262,14 +262,14 @@ const deletePayment = async (id) => {
                </div>
 
   {/* Date */}
-                <div className="grid grid-cols-[180px_1fr] items-center gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] items-center gap-8">
                  <label className="text-sm text-gray-600 text-left">
                  Date <span className="text-red-500">*</span></label>
                 <input value={form.payment_date} onChange={handleChange} type="date" name="payment_date" className="border rounded-md px-3 py-2 outline-none w-full"/>
               </div>
 
   {/* Payment Method */}
-               <div className=" paymentmethod grid grid-cols-[180px_1fr] items-center gap-8">
+               <div className=" paymentmethod grid grid-cols-1 md:grid-cols-[180px_1fr] items-center gap-8">
                <label className="text-sm text-gray-600 text-left">
                 Payment Method <span className="text-red-500">*</span></label>
 
@@ -307,7 +307,7 @@ const deletePayment = async (id) => {
 </div>
 
   {/* Transaction ID */}
-             <div className="grid grid-cols-[180px_1fr] items-center gap-8">
+             <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] items-center gap-8">
             <label className="text-sm text-gray-600 text-left">Transaction ID</label>
             <div className="flex flex-col gap-1 w-full">
               <input
@@ -436,7 +436,7 @@ const deletePayment = async (id) => {
           </div>
 
 
-     </center>
+     </div>
  )
 }
 export default Payments;

@@ -575,22 +575,37 @@ router.get("/targets/my", verifyToken, (req, res) => {
                               balance_target: Math.max(0, (h.effective_target || h.target_monthly) - h.achieved_amount)
                             })) : [];
 
-                            res.json({
-                              ...targetRows[0],
-                              hasTarget: true,
-                              achieved_amount: achievedAmount,
-                              achieved_count: achievedCount,
-                              ytd_amount: ytdAmount,
-                              ytd_count: ytdCount,
-                              yearly_balance: yearlyBalance,
-                              monthly_balance: monthlyBalance,
-                              pending_amount: monthlyBalance,
-                              balance_target: monthlyBalance,
-                              carry_forward: totalCarry,
-                              effective_target: effectiveTarget,
-                              current_month: currentMonth,
-                              history
-                            });
+                            // Fetch individual submissions with descriptions
+                            db.query("SELECT id, amount, description, month_year, created_at FROM task_updates WHERE user_name = ? ORDER BY created_at DESC LIMIT 50",
+                              [targetUserName],
+                              (err5, submissionRows) => {
+                                const submissions = submissionRows ? submissionRows.map(s => ({
+                                  id: s.id,
+                                  amount: s.amount,
+                                  description: s.description || "",
+                                  month_year: s.month_year,
+                                  created_at: s.created_at
+                                })) : [];
+
+                                res.json({
+                                  ...targetRows[0],
+                                  hasTarget: true,
+                                  achieved_amount: achievedAmount,
+                                  achieved_count: achievedCount,
+                                  ytd_amount: ytdAmount,
+                                  ytd_count: ytdCount,
+                                  yearly_balance: yearlyBalance,
+                                  monthly_balance: monthlyBalance,
+                                  pending_amount: monthlyBalance,
+                                  balance_target: monthlyBalance,
+                                  carry_forward: totalCarry,
+                                  effective_target: effectiveTarget,
+                                  current_month: currentMonth,
+                                  history,
+                                  submissions
+                                });
+                              }
+                            );
                           }
                         );
                       }
@@ -912,22 +927,44 @@ const processAchievement = (user_id, user_name, targetId, monthlyTarget, achieve
 
           const finalize = (totalCarry) => {
             const effectiveTarget = monthlyTarget + totalCarry;
+            const achievementTimestamp = new Date().toISOString();
 
-            // Persist carry_forward to DB
-            db.query("UPDATE task_targets SET carry_forward = ?, effective_target = ? WHERE id = ?",
+            // ═══════════════════════════════════════════════════════════
+            // STEP 1: Update task_targets with carry_forward and effective_target
+            // ═══════════════════════════════════════════════════════════
+            db.query("UPDATE task_targets SET carry_forward = ?, effective_target = ?, updated_at = NOW() WHERE id = ?",
               [totalCarry, effectiveTarget, targetId],
               () => {
-                db.query(`INSERT INTO task_updates (user_id, user_name, target_id, month_year, amount, description) VALUES (?, ?, ?, ?, ?, ?)`,
+                // ═══════════════════════════════════════════════════════════
+                // STEP 2: Insert into task_updates (AUDIT TRAIL)
+                // ═══════════════════════════════════════════════════════════
+                db.query(`INSERT INTO task_updates (user_id, user_name, target_id, month_year, amount, description, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())`,
                   [user_id, user_name, targetId, currentMonth, amount, description],
-                  (err3) => {
-                    if (err3) return res.status(500).json({ error: err3.message });
-                    db.query(`INSERT INTO task_achievements (user_id, user_name, target_id, month_year, achieved_amount) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE achieved_amount = achieved_amount + ?`,
+                  (err3, updateRes) => {
+                    const updateId = updateRes?.insertId;
+                    if (err3) console.warn("task_updates insert warning:", err3.message);
+
+                    // ═══════════════════════════════════════════════════════════
+                    // STEP 3: Insert/Update task_achievements (HISTORY + TRACKING)
+                    // ═══════════════════════════════════════════════════════════
+                    db.query(`INSERT INTO task_achievements (user_id, user_name, target_id, month_year, achieved_amount, updated_at) VALUES (?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE achieved_amount = achieved_amount + ?, updated_at = NOW()`,
                       [user_id, user_name, targetId, currentMonth, amount, amount],
                       (err4) => {
                         if (err4) return res.status(500).json({ error: err4.message });
-                        db.query("INSERT INTO task_activity (task_id, action, message) VALUES (?, ?, ?)",
-                          [targetId, "Task Achievement Update", user_name + " achieved Rs." + amount + " (effective target: Rs." + effectiveTarget + ")"]);
 
+                        // ═══════════════════════════════════════════════════════════
+                        // STEP 4: Insert into task_activity (EVENT LOG)
+                        // ═══════════════════════════════════════════════════════════
+                        db.query("INSERT INTO task_activity (task_id, action, message, created_at) VALUES (?, ?, ?, NOW())",
+                          [targetId, "Achievement Added", `${user_name} added Rs.${amount} achievement (${description}) - Effective target: Rs.${effectiveTarget}`],
+                          (actErr) => {
+                            if (actErr) console.warn("task_activity insert warning:", actErr.message);
+                          }
+                        );
+
+                        // ═══════════════════════════════════════════════════════════
+                        // STEP 5: Get current month achievement details
+                        // ═══════════════════════════════════════════════════════════
                         db.query("SELECT achieved_amount FROM task_achievements WHERE user_name = ? AND month_year = ?",
                           [user_name, currentMonth],
                           (achErr, achRows) => {
@@ -935,63 +972,144 @@ const processAchievement = (user_id, user_name, targetId, monthlyTarget, achieve
                             const monthlyPercentage = effectiveTarget > 0 ? Math.round((newAchieved / effectiveTarget) * 100) : 0;
                             const balanceTarget = Math.max(0, effectiveTarget - newAchieved);
 
-                            // Get YTD for response
-                            db.query("SELECT SUM(achieved_amount) as ytd_amount FROM task_achievements WHERE user_name = ? AND month_year LIKE ?",
+                            // ═══════════════════════════════════════════════════════════
+                            // STEP 6: Get YTD (Year-To-Date) totals
+                            // ═══════════════════════════════════════════════════════════
+                            db.query("SELECT SUM(achieved_amount) as ytd_amount, COUNT(*) as achievement_count FROM task_achievements WHERE user_name = ? AND month_year LIKE ?",
                               [user_name, currentYearPrefix],
                               (ytdErr, ytdRows) => {
                                 const ytdAmount = ytdRows && ytdRows.length ? Number(ytdRows[0].ytd_amount) || 0 : 0;
+                                const ytdCount = ytdRows && ytdRows.length ? Number(ytdRows[0].achievement_count) || 0 : 0;
                                 const yearlyBalance = Math.max(0, yearlyTarget - ytdAmount);
                                 const yearlyPct = yearlyTarget > 0 ? Math.round((ytdAmount / yearlyTarget) * 100) : 0;
 
                                 const notifIO = getNotificationIO();
 
-                                // Check if target is fully completed (100%+)
-                                if (monthlyPercentage >= 100) {
-                                  if (notifIO) {
-                                    const time = new Date().toLocaleString();
-                                    notifIO.emitNotification("target_completed", {
-                                      userId: user_id, userName: user_name, targetId: targetId,
-                                      percentage: monthlyPercentage, achievedAmount: newAchieved,
-                                      effectiveTarget: effectiveTarget,
-                                      title: "Target Completed!",
-                                      message: `Congratulations! You've completed your monthly target of Rs.${Number(effectiveTarget).toLocaleString()}.`,
-                                      type: "target_completed", timestamp: time
-                                    }, user_id, false);
+                                // ═══════════════════════════════════════════════════════════
+                                // STEP 7: Send notifications & update admin side
+                                // ═══════════════════════════════════════════════════════════
+                                
+                                // Employee notification (if target completed)
+                                if (monthlyPercentage >= 100 && notifIO) {
+                                  const time = new Date().toLocaleString();
+                                  notifIO.emitNotification("target_completed", {
+                                    userId: user_id, userName: user_name, targetId: targetId,
+                                    percentage: monthlyPercentage, achievedAmount: newAchieved,
+                                    effectiveTarget: effectiveTarget,
+                                    title: "🎉 Target Completed!",
+                                    message: `Congratulations! You've completed your monthly target of Rs.${Number(effectiveTarget).toLocaleString()}.`,
+                                    type: "target_completed", timestamp: time
+                                  }, user_id, false);
 
-                                    notifIO.emitNotification("target_completed", {
-                                      userId: user_id, userName: user_name, targetId: targetId,
-                                      percentage: monthlyPercentage, achievedAmount: newAchieved,
-                                      effectiveTarget: effectiveTarget,
-                                      title: "Employee Target Completed",
-                                      message: `${user_name} has completed their monthly target of Rs.${Number(effectiveTarget).toLocaleString()} (${monthlyPercentage}%).`,
-                                      type: "target_completed", timestamp: time
-                                    }, null, true);
-                                  }
+                                  // Admin notification
+                                  notifIO.emitNotification("target_completed", {
+                                    userId: user_id, userName: user_name, targetId: targetId,
+                                    percentage: monthlyPercentage, achievedAmount: newAchieved,
+                                    effectiveTarget: effectiveTarget,
+                                    title: "🎯 Employee Target Completed",
+                                    message: `${user_name} has completed their monthly target of Rs.${Number(effectiveTarget).toLocaleString()} (${monthlyPercentage}%).`,
+                                    type: "target_completed", timestamp: time
+                                  }, null, true);
                                 }
 
-                                db.query("INSERT INTO admin_notifications (type, user_id, message, related_id, related_type, priority) VALUES (?, ?, ?, ?, ?, ?)",
-                                  ["target_achievement", user_id, `${user_name} achieved Rs.${Number(amount).toLocaleString()} - Monthly: ${monthlyPercentage}% (YTD: ${yearlyPct}%)`, targetId, "target", "normal"],
-                                  () => { }
+                                // ═══════════════════════════════════════════════════════════
+                                // STEP 8: Insert into admin_notifications + Broadcast
+                                // ═══════════════════════════════════════════════════════════
+                                db.query("INSERT INTO admin_notifications (type, user_id, message, related_id, related_type, priority, is_read, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, NOW())",
+                                  ["target_achievement", user_id, `${user_name} achieved Rs.${Number(amount).toLocaleString()} - Monthly: ${monthlyPercentage}% (YTD: ${yearlyPct}%)`, targetId, "target", monthlyPercentage >= 100 ? "high" : "normal"],
+                                  (nErr, nResult) => {
+                                    if (!nErr && notifIO && nResult && nResult.insertId) {
+                                      // ═══════════════════════════════════════════════════════════
+                                      // STEP 9: Broadcast to admin dashboard (REAL-TIME)
+                                      // ═══════════════════════════════════════════════════════════
+                                      const achievementData = {
+                                        id: nResult.insertId,
+                                        notification_id: nResult.insertId,
+                                        employee_name: user_name,
+                                        user_id: user_id,
+                                        amount: Number(amount),
+                                        description: description,
+                                        monthly_achieved: newAchieved,
+                                        monthly_percentage: monthlyPercentage,
+                                        monthly_target: monthlyTarget,
+                                        monthly_balance: balanceTarget,
+                                        yearly_achieved: ytdAmount,
+                                        yearly_percentage: yearlyPct,
+                                        yearly_target: yearlyTarget,
+                                        yearly_balance: yearlyBalance,
+                                        achievement_count: ytdCount,
+                                        effective_target: effectiveTarget,
+                                        balance_target: balanceTarget,
+                                        timestamp: achievementTimestamp,
+                                        created_at: new Date().toISOString(),
+                                        is_target_completed: monthlyPercentage >= 100,
+                                        current_month: currentMonth,
+                                        carry_forward: totalCarry
+                                      };
+
+                                      // Broadcast to all admin clients
+                                      notifIO.namespace.to("admin_notifications").emit("employee_achievement", achievementData);
+                                      
+                                      // Broadcast to employee
+                                      notifIO.namespace.to(`notifications:${user_id}`).emit("achievement_recorded", achievementData);
+                                      
+                                      // Broadcast to all connected clients (global sync)
+                                      notifIO.emit("target_data_changed", {
+                                        type: "achievement_added",
+                                        user_id: user_id,
+                                        user_name: user_name,
+                                        target_id: targetId,
+                                        timestamp: achievementTimestamp
+                                      });
+                                    }
+                                  }
                                 );
 
+                                // ═══════════════════════════════════════════════════════════
+                                // STEP 10: Emit data changed event for all targets refresh
+                                // ═══════════════════════════════════════════════════════════
                                 if (notifIO) {
-                                  notifIO.emit("data_changed", { type: "target_achievement", userId: user_id, userName: user_name });
+                                  notifIO.emit("data_changed", {
+                                    type: "target_achievement",
+                                    userId: user_id,
+                                    userName: user_name,
+                                    targetId: targetId,
+                                    timestamp: achievementTimestamp
+                                  });
+
+                                  // Emit to targets room to refresh admin targets view
+                                  notifIO.namespace.to("admin_notifications").emit("target_updated_data", {
+                                    target_id: targetId,
+                                    user_name: user_name,
+                                    monthly_achieved: newAchieved,
+                                    monthly_percentage: monthlyPercentage,
+                                    yearly_achieved: ytdAmount,
+                                    yearly_percentage: yearlyPct,
+                                    timestamp: achievementTimestamp
+                                  });
                                 }
 
+                                // ═══════════════════════════════════════════════════════════
+                                // STEP 11: Return complete response to frontend
+                                // ═══════════════════════════════════════════════════════════
                                 res.json({
-                                  message: "Achievement updated",
+                                  message: "Achievement recorded successfully",
+                                  success: true,
                                   target_id: targetId,
+                                  update_id: updateId,
                                   carry_forward: totalCarry,
                                   effective_target: effectiveTarget,
                                   amount_updated: amount,
                                   achieved_amount: newAchieved,
                                   balance_target: balanceTarget,
+                                  monthly_percentage: monthlyPercentage,
                                   ytd_amount: ytdAmount,
                                   yearly_balance: yearlyBalance,
                                   yearly_target: yearlyTarget,
                                   yearly_percentage: yearlyPct,
                                   current_month: currentMonth,
-                                  percentage: monthlyPercentage
+                                  timestamp: achievementTimestamp,
+                                  is_target_completed: monthlyPercentage >= 100
                                 });
                               }
                             );
@@ -1029,9 +1147,27 @@ const processAchievement = (user_id, user_name, targetId, monthlyTarget, achieve
 router.get("/targets/history", verifyToken, (req, res) => {
   const { user_name, months } = req.query;
   const limit = parseInt(months) || 12;
-  db.query(`SELECT a.month_year, a.achieved_count, (SELECT monthly_target FROM task_targets WHERE id = a.target_id) as monthly_target FROM task_achievements a WHERE a.user_name = ? ORDER BY a.month_year DESC LIMIT ?`,
+  db.query(`SELECT a.month_year, a.achieved_count, a.achieved_amount, (SELECT monthly_target FROM task_targets WHERE id = a.target_id) as monthly_target FROM task_achievements a WHERE a.user_name = ? ORDER BY a.month_year DESC LIMIT ?`,
     [user_name, limit],
-    (err, rows) => { if (err) return res.status(500).json({ error: err.message }); res.json(rows); });
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      // Also fetch individual submissions with descriptions
+      db.query("SELECT id, amount, description, month_year, created_at FROM task_updates WHERE user_name = ? ORDER BY created_at DESC LIMIT 100",
+        [user_name],
+        (err2, submissionRows) => {
+          const submissions = submissionRows ? submissionRows.map(s => ({
+            id: s.id,
+            amount: s.amount,
+            description: s.description || "",
+            month_year: s.month_year,
+            created_at: s.created_at
+          })) : [];
+
+          res.json({ monthly: rows, submissions });
+        }
+      );
+    });
 });
 
 router.post("/assign", verifyToken, isAdmin, (req, res) => {
