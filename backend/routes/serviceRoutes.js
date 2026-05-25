@@ -98,15 +98,13 @@ router.post("/send-email/:id", verifyToken, (req, res) => {
     if (!recipientEmail) return res.status(400).json({ message: "No email address provided" });
 
     try {
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-      });
+      const { getTransporterForUser } = require("../backendutil/emailConfig");
+      const { transporter, fromAddress } = await getTransporterForUser(req.user.id);
 
       const svcNumber = `SVC-${new Date(service.date).getFullYear()}-${String(service.id).padStart(3, "0")}`;
 
       await transporter.sendMail({
-        from: `"Achme Communication" <${process.env.EMAIL_USER}>`,
+        from: fromAddress,
         to: recipientEmail,
         cc: cc || undefined,
         subject: subject || `Service Report ${svcNumber}`,

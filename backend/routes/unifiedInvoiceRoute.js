@@ -346,12 +346,10 @@ function createUnifiedRouter({ table, itemsTable, prefix, dateField, label }) {
             docLabel: label.toUpperCase(),
           });
 
-          const transporter = nodemailer.createTransport({
-            service: "gmail",
-            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-          });
+          const { getTransporterForUser } = require("../backendutil/emailConfig");
+          const { transporter, fromAddress } = await getTransporterForUser(req.user.id);
           await transporter.sendMail({
-            from: `"Achme Communication" <${process.env.EMAIL_USER}>`,
+            from: fromAddress,
             to: recipientEmail,
             cc: cc || undefined,
             subject: subject || `${label} ${docNumber}`,

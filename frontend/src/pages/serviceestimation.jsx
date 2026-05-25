@@ -8,6 +8,7 @@ import "../Styles/tailwind.css";
 import Invoice from "../components/invoicetemplate";
 import { API } from "../config";
 import { BRANCH_DATA, BRANCH_OPTIONS } from "../config/branchConfig";
+import SMTPConfigPrompt from "../components/SMTPConfigPrompt";
 const UOM_OPTIONS = ["Nos", "Units", "Pieces", "Boxes", "Sets", "Meters", "Kg", "Liters"];
 const INDIAN_STATES = [
     "Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chandigarh", "Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu", "Delhi", "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jammu and Kashmir", "Jharkhand", "Karnataka", "Kerala", "Ladakh", "Lakshadweep", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Puducherry", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal"
@@ -65,6 +66,7 @@ const ServiceEstimation = () => {
     const [mailCc, setMailCc] = useState("");
     const [mailSubject, setMailSubject] = useState("");
     const [mailSending, setMailSending] = useState(false);
+    const [showSMTPPrompt, setShowSMTPPrompt] = useState(false);
     const [descInput, setDescInput] = useState("");
     const [brandInput, setBrandInput] = useState("");
     const [showAddAddress, setShowAddAddress] = useState(false);
@@ -86,6 +88,8 @@ const ServiceEstimation = () => {
         const year = dateStr ? new Date(dateStr).getFullYear() : new Date().getFullYear();
         return `SE-${year}-${String(id).padStart(3, "0")}`;
     };
+    const findInvoice = (id) => serviceInvoices.find(p => p.id === id) || historyList.find(p => p.id === id);
+
     useEffect(() => {
         fetchServiceInvoices();
         fetchQuotations();
@@ -379,20 +383,31 @@ const ServiceEstimation = () => {
             setSelectedId(null); fetchServiceInvoices();
         } catch (error) { console.error(error); }
     };
-    const openMailModal = () => {
-        if (!selectedId) return alert("Select an invoice to send");
-        const inv = serviceInvoices.find(p => p.id === selectedId);
+    const openMailModal = async () => {
+        const id = viewId || selectedId;
+        if (!id) return alert("Select an invoice to send");
+        try {
+            const res = await axios.get(`${API}/api/auth/check-email-config`, getAuthConfig());
+            if (!res.data.hasConfig) {
+                setShowSMTPPrompt(true);
+                return;
+            }
+        } catch (e) {
+            console.error("Error checking SMTP config before sending mail:", e);
+        }
+        const inv = findInvoice(id);
         const adminEmail = (() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })();
         setMailTo(inv?.email || "");
         setMailCc(adminEmail);
-        setMailSubject(`Service Estimation ${formatSENumber(selectedId, inv?.invoice_date)}`);
+        setMailSubject(`Service Estimation ${formatSENumber(id, inv?.invoice_date)}`);
         setMailOpen(true);
     };
     const handleSendEmail = async () => {
+        const id = viewId || selectedId;
         if (!mailTo) return alert("Please enter recipient email");
         setMailSending(true);
         try {
-            await axios.post(`${API}/api/service-estimation/send-email/${selectedId}`, { to: mailTo, cc: mailCc, subject: mailSubject }, getAuthConfig());
+            await axios.post(`${API}/api/service-estimation/send-email/${id}`, { to: mailTo, cc: mailCc, subject: mailSubject }, getAuthConfig());
             alert("Email sent successfully"); setMailOpen(false);
         } catch (error) { alert(error.response?.data?.message || "Failed to send email"); }
         finally { setMailSending(false); }
@@ -436,7 +451,7 @@ const ServiceEstimation = () => {
                                 const blob = await res.blob();
                                 const url = URL.createObjectURL(blob);
                                 const a = document.createElement("a"); a.href = url;
-                                a.download = `ServiceEstimation_${formatSENumber(id, serviceInvoices.find(p => p.id === id)?.invoice_date)}.pdf`;
+                                a.download = `ServiceEstimation_${formatSENumber(id, findInvoice(id)?.invoice_date)}.pdf`;
                                 a.click(); URL.revokeObjectURL(url);
                             } catch (e) { alert("Download failed: " + e.message); }
                         }} title="Download PDF" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Download size={20} /></button>
@@ -1056,6 +1071,12 @@ const ServiceEstimation = () => {
                     </div>
                     <Invoice quotationId={viewId} type="service" />
                 </div>
+            )}
+            {showSMTPPrompt && (
+                <SMTPConfigPrompt 
+                    email={(() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })()} 
+                    onClose={() => setShowSMTPPrompt(false)} 
+                />
             )}
         </div>
     );

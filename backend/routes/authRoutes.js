@@ -376,32 +376,28 @@ router.put("/handle-change-request/:requestId", verifyToken, isAdmin, (req, res)
     const req_data = rows[0];
 
     if (action === "approved") {
-      const fieldMap = {
-        first_name: "first_name",
-        email: "email",
-        mobile_number: "mobile_number",
-        emp_address: "emp_address",
-        password: "user_password"
-      };
-      const dbField = fieldMap[req_data.field];
-      if (dbField) {
-        if (dbField === "user_password") {
-          bcrypt.hash(req_data.new_value, 10, (hashErr, hash) => {
-            if (hashErr) return res.status(500).json({ message: "Hash failed" });
-            db.query("UPDATE users SET ?? = ? WHERE id = ?", [dbField, hash, req_data.user_id], (upErr) => {
-              if (upErr) return res.status(500).json({ message: "Update failed" });
-            });
-          });
-        } else if (["mobile_number"].includes(dbField)) {
-          db.query("UPDATE teammember SET ?? = ? WHERE user_id = ?", [dbField, req_data.new_value, req_data.user_id]);
-        } else {
-          db.query("UPDATE users SET ?? = ? WHERE id = ?", [dbField, req_data.new_value, req_data.user_id], (upErr, upRes) => {
+      const field = req_data.field;
+      if (field === "password") {
+        bcrypt.hash(req_data.new_value, 10, (hashErr, hash) => {
+          if (hashErr) return res.status(500).json({ message: "Hash failed" });
+          db.query("UPDATE users SET user_password = ? WHERE id = ?", [hash, req_data.user_id], (upErr) => {
             if (upErr) return res.status(500).json({ message: "Update failed" });
-            if (dbField === "email") {
-              db.query("UPDATE teammember SET emp_email = ? WHERE user_id = ?", [req_data.new_value, req_data.user_id]);
-            }
           });
-        }
+        });
+      } else if (field === "first_name") {
+        db.query("UPDATE users SET first_name = ? WHERE id = ?", [req_data.new_value, req_data.user_id], (upErr) => {
+          if (upErr) return res.status(500).json({ message: "Update failed" });
+          db.query("UPDATE teammember SET first_name = ? WHERE user_id = ?", [req_data.new_value, req_data.user_id]);
+        });
+      } else if (field === "email") {
+        db.query("UPDATE users SET email = ? WHERE id = ?", [req_data.new_value, req_data.user_id], (upErr) => {
+          if (upErr) return res.status(500).json({ message: "Update failed" });
+          db.query("UPDATE teammember SET emp_email = ? WHERE user_id = ?", [req_data.new_value, req_data.user_id]);
+        });
+      } else if (field === "mobile_number") {
+        db.query("UPDATE teammember SET mobile_number = ? WHERE user_id = ?", [req_data.new_value, req_data.user_id]);
+      } else if (field === "emp_address") {
+        db.query("UPDATE teammember SET emp_address = ? WHERE user_id = ?", [req_data.new_value, req_data.user_id]);
       }
       db.query("UPDATE profile_change_requests SET status = ? WHERE id = ?", [action, requestId]);
     } else {
@@ -424,5 +420,244 @@ router.put("/handle-change-request/:requestId", verifyToken, isAdmin, (req, res)
     res.json({ message: `Request ${action}` });
   });
 });
+
+/* ================= GET LOGGED-IN USER PROFILE ================= */
+router.get("/profile", verifyToken, (req, res) => {
+  const userId = req.user.id;
+  db.query(
+    `SELECT u.id, u.first_name, u.email, u.role, u.status, u.created_at, 
+            tm.job_title, tm.emp_role, tm.mobile_number, tm.emp_address, tm.emp_id
+     FROM users u
+     LEFT JOIN teammember tm ON u.id = tm.user_id
+     WHERE u.id = ?`,
+    [userId],
+    (err, rows) => {
+      if (err) {
+        console.error("GET /profile db error:", err);
+        return res.status(500).json({ message: "Failed to fetch profile" });
+      }
+      if (!rows.length) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      res.json(rows[0]);
+    }
+  );
+});
+
+/* ================= UPDATE LOGGED-IN USER PROFILE (Admin/Subadmin Direct) ================= */
+router.put("/profile", verifyToken, (req, res) => {
+  const userId = req.user.id;
+  const userRole = req.user.role;
+  const { first_name, email, mobile_number, emp_address } = req.body;
+
+  if (userRole !== "admin" && userRole !== "subadmin") {
+    return res.status(403).json({ message: "Only administrators can directly modify profile data without approval." });
+  }
+
+  db.query(
+    "UPDATE users SET first_name = ?, email = ? WHERE id = ?",
+    [first_name, email, userId],
+    (err) => {
+      if (err) {
+        console.error("PUT /profile users update error:", err);
+        return res.status(500).json({ message: "Failed to update profile" });
+      }
+
+      db.query(
+        "UPDATE teammember SET first_name = ?, emp_email = ?, mobile_number = ?, emp_address = ? WHERE user_id = ?",
+        [first_name, email, mobile_number, emp_address, userId],
+        (err2) => {
+          if (err2) {
+            console.error("PUT /profile teammember update error:", err2);
+            return res.status(500).json({ message: "Failed to update profile details" });
+          }
+          res.json({ message: "Profile updated successfully" });
+        }
+      );
+    }
+  );
+});
+
+/* ================= GET LOGGED-IN USER CHANGE REQUESTS ================= */
+router.get("/my-change-requests", verifyToken, (req, res) => {
+  const userId = req.user.id;
+  db.query(
+    "SELECT * FROM profile_change_requests WHERE user_id = ? ORDER BY created_at DESC",
+    [userId],
+    (err, rows) => {
+      if (err) {
+        console.error("GET /my-change-requests db error:", err);
+        return res.status(500).json({ message: "Failed to fetch change requests" });
+      }
+      res.json(rows);
+    }
+  );
+});
+
+/* ================= REQUEST PROFILE CHANGE (Employee) ================= */
+router.post("/request-profile-change", verifyToken, (req, res) => {
+  const userId = req.user.id;
+  const { field, new_value, current_password } = req.body;
+
+  if (!field || new_value === undefined || new_value === null) {
+    return res.status(400).json({ message: "Field and new value are required" });
+  }
+
+  const allowedFields = ["first_name", "email", "mobile_number", "emp_address", "password"];
+  if (!allowedFields.includes(field)) {
+    return res.status(400).json({ message: "Invalid profile field" });
+  }
+
+  if (field === "password") {
+    if (!current_password) {
+      return res.status(400).json({ message: "Current password is required to request a password change" });
+    }
+    db.query("SELECT user_password, first_name FROM users WHERE id = ?", [userId], async (err, rows) => {
+      if (err || !rows.length) {
+        return res.status(500).json({ message: "Database error" });
+      }
+      const user = rows[0];
+      const match = await bcrypt.compare(current_password, user.user_password);
+      if (!match) {
+        return res.status(400).json({ message: "Invalid current password" });
+      }
+
+      insertRequest(userId, field, new_value, user.first_name, res);
+    });
+  } else {
+    db.query("SELECT first_name FROM users WHERE id = ?", [userId], (err, rows) => {
+      if (err || !rows.length) {
+        return res.status(500).json({ message: "Database error" });
+      }
+      insertRequest(userId, field, new_value, rows[0].first_name, res);
+    });
+  }
+});
+
+/* ================= DIRECT CHANGE PASSWORD (For any logged in user) ================= */
+router.post("/change-password-direct", verifyToken, (req, res) => {
+  const userId = req.user.id;
+  const { current_password, new_password } = req.body;
+
+  if (!current_password || !new_password) {
+    return res.status(400).json({ message: "Current and new passwords are required" });
+  }
+
+  db.query("SELECT user_password FROM users WHERE id = ?", [userId], async (err, rows) => {
+    if (err || !rows.length) {
+      return res.status(500).json({ message: "Database error" });
+    }
+    const user = rows[0];
+    const match = await bcrypt.compare(current_password, user.user_password);
+    if (!match) {
+      return res.status(400).json({ message: "Invalid current password" });
+    }
+
+    const hash = await bcrypt.hash(new_password, 10);
+    db.query("UPDATE users SET user_password = ? WHERE id = ?", [hash, userId], (upErr) => {
+      if (upErr) {
+        console.error("change-password-direct db error:", upErr);
+        return res.status(500).json({ message: "Failed to update password" });
+      }
+      res.json({ message: "Password updated successfully" });
+    });
+  });
+});
+
+/* ================= CHECK USER EMAIL SMTP CONFIG STATUS ================= */
+router.get("/check-email-config", verifyToken, (req, res) => {
+  const userId = req.user.id;
+  db.query(
+    "SELECT id, email_user, smtp_host, smtp_port FROM user_email_configs WHERE user_id = ?",
+    [userId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ message: "Failed to check email config" });
+      if (!rows.length) {
+        return res.json({ hasConfig: false });
+      }
+      res.json({ hasConfig: true, config: rows[0] });
+    }
+  );
+});
+
+/* ================= SAVE/UPDATE USER EMAIL SMTP CONFIG ================= */
+router.post("/save-email-config", verifyToken, (req, res) => {
+  const userId = req.user.id;
+  const { email_pass, smtp_host, smtp_port } = req.body;
+
+  if (!email_pass) {
+    return res.status(400).json({ message: "Email password is required" });
+  }
+
+  // Fetch the user's email address first to auto-populate
+  db.query("SELECT email FROM users WHERE id = ?", [userId], (err, rows) => {
+    if (err || !rows.length) {
+      return res.status(500).json({ message: "Failed to find user email" });
+    }
+    const emailUser = rows[0].email;
+    const host = smtp_host || "smtp.gmail.com";
+    const port = smtp_port || 587;
+
+    // Use INSERT ... ON DUPLICATE KEY UPDATE
+    db.query(
+      `INSERT INTO user_email_configs (user_id, email_user, email_pass, smtp_host, smtp_port)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE email_user = ?, email_pass = ?, smtp_host = ?, smtp_port = ?`,
+      [userId, emailUser, email_pass, host, port, emailUser, email_pass, host, port],
+      (err2) => {
+        if (err2) {
+          console.error("save-email-config db error:", err2);
+          return res.status(500).json({ message: "Failed to save email configuration" });
+        }
+        res.json({ message: "Email SMTP configuration saved successfully" });
+      }
+    );
+  });
+});
+
+function insertRequest(userId, field, new_value, userName, res) {
+  db.query(
+    "INSERT INTO profile_change_requests (user_id, field, new_value, status) VALUES (?, ?, ?, 'pending')",
+    [userId, field, new_value],
+    (err, result) => {
+      if (err) {
+        console.error("insertRequest db error:", err);
+        return res.status(500).json({ message: "Failed to submit change request" });
+      }
+
+      const requestId = result.insertId;
+      const fieldLabel = fieldLabels[field] || field;
+      const messageText = `${userName} requested profile change: ${fieldLabel}`;
+
+      db.query(
+        "INSERT INTO admin_notifications (type, user_id, message, related_id, related_type) VALUES ('profile_change_requested', ?, ?, ?, 'profile_change_requests')",
+        [userId, messageText, requestId],
+        (errNotif, resultNotif) => {
+          const notificationIO = getNotificationIO();
+          if (notificationIO) {
+            notificationIO.sendToAdmin("new_notification", {
+              dbId: resultNotif?.insertId || requestId,
+              type: "profile_change_requested",
+              timestamp: new Date().toISOString(),
+              is_read: 0,
+              data: {
+                id: requestId,
+                userId: userId,
+                userName: userName,
+                field: field,
+                fieldLabel: fieldLabel,
+                type: "profile",
+                message: messageText
+              },
+              userId: userId,
+              message: messageText
+            });
+          }
+          res.json({ message: "Change request submitted successfully. Waiting for admin approval." });
+        }
+      );
+    }
+  );
+}
 
 module.exports = router;

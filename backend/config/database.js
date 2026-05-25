@@ -420,6 +420,19 @@ async function ensureTablesAndColumns() {
         lead_staff_name VARCHAR(150) DEFAULT NULL,
         lead_id_display VARCHAR(50) DEFAULT NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+    },
+    {
+      name: "user_email_configs",
+      sql: `CREATE TABLE IF NOT EXISTS user_email_configs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        email_user VARCHAR(150) NOT NULL,
+        email_pass VARCHAR(255) NOT NULL,
+        smtp_host VARCHAR(100) DEFAULT 'smtp.gmail.com',
+        smtp_port INT DEFAULT 587,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_user_id (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
     }
   ];
 

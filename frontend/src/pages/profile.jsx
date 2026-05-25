@@ -36,10 +36,14 @@ const Profile = () => {
   const [showNewPass, setShowNewPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [smtpData, setSmtpData] = useState({ email_pass: "", smtp_host: "smtp.gmail.com", smtp_port: "587" });
+  const [hasSMTP, setHasSMTP] = useState(false);
+  const [smtpLoading, setSmtpLoading] = useState(false);
 
   useEffect(() => {
     fetchProfile();
     fetchChangeRequests();
+    fetchSMTPConfig();
 
     if (socket) {
       socket.on("profile_change_response", () => {
@@ -142,6 +146,85 @@ const Profile = () => {
       setEditMode(false);
     } catch (err) {
       setMessage({ type: "error", text: err.response?.data?.message || "Failed to update profile" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fetchSMTPConfig = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${API}/api/auth/check-email-config`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.hasConfig) {
+        setHasSMTP(true);
+        setSmtpData({
+          email_pass: "••••••••••••••••",
+          smtp_host: res.data.config.smtp_host || "smtp.gmail.com",
+          smtp_port: String(res.data.config.smtp_port || 587)
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load SMTP config:", err);
+    }
+  };
+
+  const handleSMTPSave = async (e) => {
+    e.preventDefault();
+    if (!smtpData.email_pass.trim()) {
+      setMessage({ type: "error", text: "App password is required" });
+      return;
+    }
+
+    setSmtpLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(`${API}/api/auth/save-email-config`, {
+        email_pass: smtpData.email_pass,
+        smtp_host: smtpData.smtp_host,
+        smtp_port: parseInt(smtpData.smtp_port) || 587
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMessage({ type: "success", text: "SMTP Configuration saved successfully" });
+      setHasSMTP(true);
+      fetchSMTPConfig();
+    } catch (err) {
+      setMessage({ type: "error", text: err.response?.data?.message || "Failed to save SMTP config" });
+    } finally {
+      setSmtpLoading(false);
+    }
+  };
+
+  const handleAdminPasswordChange = async () => {
+    if (!passwordData.current_password || !passwordData.new_password || !passwordData.confirm_password) {
+      setMessage({ type: "error", text: "All fields are required" });
+      return;
+    }
+    if (passwordData.new_password !== passwordData.confirm_password) {
+      setMessage({ type: "error", text: "New passwords do not match" });
+      return;
+    }
+    if (passwordData.new_password.length < 6) {
+      setMessage({ type: "error", text: "Password must be at least 6 characters" });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(`${API}/api/auth/change-password-direct`, {
+        current_password: passwordData.current_password,
+        new_password: passwordData.new_password
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMessage({ type: "success", text: "Password updated successfully" });
+      setShowPasswordModal(false);
+      setPasswordData({ current_password: "", new_password: "", confirm_password: "" });
+    } catch (err) {
+      setMessage({ type: "error", text: err.response?.data?.message || "Failed to update password" });
     } finally {
       setSaving(false);
     }
@@ -369,6 +452,81 @@ const Profile = () => {
         </div>
       </div>
 
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mt-6 animate-fade-in">
+        <div className="bg-gradient-to-r from-indigo-500 to-blue-500 px-6 py-4">
+          <div className="flex items-center gap-3 text-white">
+            <Mail size={24} />
+            <div>
+              <h3 className="text-lg font-bold">SMTP Email Configuration</h3>
+              <p className="text-indigo-100 text-xs">Send proposals, invoices and service details via your own custom Gmail account</p>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSMTPSave} className="p-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">SMTP Server Host</label>
+              <input 
+                type="text" 
+                value={smtpData.smtp_host} 
+                onChange={(e) => setSmtpData({ ...smtpData, smtp_host: e.target.value })} 
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
+                placeholder="e.g. smtp.gmail.com"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">SMTP Port</label>
+              <input 
+                type="text" 
+                value={smtpData.smtp_port} 
+                onChange={(e) => setSmtpData({ ...smtpData, smtp_port: e.target.value })} 
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
+                placeholder="e.g. 587"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Gmail App Password</label>
+              <a 
+                href="https://myaccount.google.com/apppasswords" 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-xs text-blue-500 hover:underline font-medium"
+              >
+                How to generate?
+              </a>
+            </div>
+            <input 
+              type="password" 
+              value={smtpData.email_pass} 
+              onChange={(e) => setSmtpData({ ...smtpData, email_pass: e.target.value })} 
+              onClick={() => { if (hasSMTP && smtpData.email_pass === "••••••••••••••••") setSmtpData({ ...smtpData, email_pass: "" }); }}
+              className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
+              placeholder={hasSMTP ? "Enter new app password to overwrite" : "Enter 16-character app password"}
+              required
+            />
+            <p className="text-[11px] text-gray-400 leading-normal">
+              Emails will be sent from your registered account email: <b>{profile.email}</b>.
+            </p>
+          </div>
+
+          <div className="flex justify-end pt-2 border-t border-gray-100">
+            <button 
+              type="submit" 
+              disabled={smtpLoading}
+              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 text-sm font-semibold shadow-sm transition-colors flex items-center gap-2"
+            >
+              {smtpLoading ? "Saving Config..." : "Save SMTP Config"}
+            </button>
+          </div>
+        </form>
+      </div>
+
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
@@ -409,7 +567,7 @@ const Profile = () => {
             </div>
             <div className="px-6 py-4 bg-gray-50 flex justify-end gap-3 rounded-b-xl">
               <button onClick={() => setShowPasswordModal(false)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 text-sm">Cancel</button>
-              <button onClick={handlePasswordChange} disabled={saving} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm">
+              <button onClick={handleAdminPasswordChange} disabled={saving} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm">
                 {saving ? "Changing..." : "Change Password"}
               </button>
             </div>

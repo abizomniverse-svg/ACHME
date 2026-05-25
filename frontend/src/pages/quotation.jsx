@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Search, Download, X, Edit2, MinusCircle, PlusCircle, Trash2, Mail, MapPin, History, FileText } from "lucide-react";
+import { Plus, Search, Download, X, Edit2, MinusCircle, PlusCircle, Trash2, Mail, MapPin, History, FileText, Eye } from "lucide-react";
 import ClientSearchDropdown from "../components/ClientSearchDropdown";
 import { calculateItemTotal } from "../utils/invoicecal";
 import { downloadAsHtml } from "../utils/downloadHtml";
@@ -7,6 +7,7 @@ import axios from "axios";
 import Invoice from "../components/invoicetemplate";
 import { API } from "../config";
 import { BRANCH_DATA, BRANCH_OPTIONS, BANK_DETAILS } from "../config/branchConfig";
+import SMTPConfigPrompt from "../components/SMTPConfigPrompt";
 
 const UOM_OPTIONS = ["Nos","Units","Pieces","Boxes","Sets","Meters","Kg","Liters"];
 const INDIAN_STATES = ["Andaman and Nicobar Islands","Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chandigarh","Chhattisgarh","Dadra and Nagar Haveli and Daman and Diu","Delhi","Goa","Gujarat","Haryana","Himachal Pradesh","Jammu and Kashmir","Jharkhand","Karnataka","Kerala","Ladakh","Lakshadweep","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram","Nagaland","Odisha","Puducherry","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana","Tripura","Uttar Pradesh","Uttarakhand","West Bengal"];
@@ -53,6 +54,7 @@ const Quotation = () => {
   const [historyCustomerName, setHistoryCustomerName] = useState("");
   const [historyRootId, setHistoryRootId] = useState(null);
   const [historySearch, setHistorySearch] = useState("");
+  const [showSMTPPrompt, setShowSMTPPrompt] = useState(false);
   const [items, setItems] = useState([{name:"",brand_model:"",hsn_sac:"",uom:"Nos",price:0,qty:1,tax:18,discount:0}]);
   const [savedBrands, setSavedBrands] = useState([]);
   const [customer, setCustomer] = useState({customer_name:"",mobile_number:"",email:"",gst_number:"",location_city:""});
@@ -63,6 +65,7 @@ const Quotation = () => {
 
   const fmtQT = (id,d) => `QT-${d?new Date(d).getFullYear():new Date().getFullYear()}-${String(id).padStart(3,"0")}`;
   const fmtSubQT = (rootId,ver,d) => `QT-${d?new Date(d).getFullYear():new Date().getFullYear()}-${String(rootId).padStart(3,"0")}-${ver}`;
+  const findInvoice = (id) => list.find(p => p.id === id) || historyList.find(p => p.id === id);
   const fmtDate = (d) => d?new Date(d).toLocaleString("en-IN",{dateStyle:"medium"}):"---";
 
  useEffect(() => {
@@ -212,17 +215,28 @@ const handleDelete = async () => {
     }
   };
 
-  const openMailModal = () => {
-    if (!selectedId) return alert("Select an invoice to send");
-    const inv=list.find(p=>p.id===selectedId);
+  const openMailModal = async () => {
+    const id = viewId || selectedId;
+    if (!id) return alert("Select an invoice to send");
+    try {
+      const res = await axios.get(`${API}/api/auth/check-email-config`, getAuthConfig());
+      if (!res.data.hasConfig) {
+        setShowSMTPPrompt(true);
+        return;
+      }
+    } catch (e) {
+      console.error("Error checking SMTP config before sending mail:", e);
+    }
+    const inv = findInvoice(id);
     const adminEmail = (() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })();
-    setMailTo(inv?.email||""); setMailCc(adminEmail); setMailSubject(`Proposal ${fmtQT(selectedId,inv?.quotation_date||inv?.invoice_date)}`); setMailOpen(true);
+    setMailTo(inv?.email||""); setMailCc(adminEmail); setMailSubject(`Proposal ${fmtQT(id,inv?.quotation_date||inv?.invoice_date)}`); setMailOpen(true);
   };
 
-const handleSendEmail = async () => {
+  const handleSendEmail = async () => {
+    const id = viewId || selectedId;
     if (!mailTo) return alert("Please enter recipient email");
     setMailSending(true);
-    try { await axios.post(`${API}/api/quotations/send-email/${selectedId}`,{to:mailTo,cc:mailCc,subject:mailSubject},getAuthConfig()); alert("Email sent"); setMailOpen(false); }
+    try { await axios.post(`${API}/api/quotations/send-email/${id}`,{to:mailTo,cc:mailCc,subject:mailSubject},getAuthConfig()); alert("Email sent"); setMailOpen(false); }
     catch(e){ alert(e.response?.data?.message||"Failed to send email"); } finally { setMailSending(false); }
   };
 
@@ -268,7 +282,7 @@ const handleSendEmail = async () => {
             <input type="text" placeholder="Search by customer..." className="outline-none text-sm w-40 bg-transparent" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
           </div>
           <div className="flex items-center gap-2 mt-2">
-            <button onClick={async()=>{ const id=viewId||selectedId; if(!id)return alert("Select an invoice first"); try{const r=await fetch(`${API}/api/quotations/download-pdf/${id}`,{headers:{Authorization:`Bearer ${localStorage.getItem("token")}`}});if(!r.ok){const err=await r.json();return alert(err.message||"Download failed");}if(!r.headers.get("content-type")?.includes("application/pdf")){const err=await r.json();return alert(err.message||"Server returned invalid response");}const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`Quotation_${fmtQT(id,list.find(p=>p.id===id)?.invoice_date)}.pdf`;a.click();URL.revokeObjectURL(url);}catch(e){alert("Download failed: "+e.message);} }} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50" title="Download PDF"><Download size={20}/></button>
+            <button onClick={async()=>{ const id=viewId||selectedId; if(!id)return alert("Select an invoice first"); try{const r=await fetch(`${API}/api/quotations/download-pdf/${id}`,{headers:{Authorization:`Bearer ${localStorage.getItem("token")}`}});if(!r.ok){const err=await r.json();return alert(err.message||"Download failed");}if(!r.headers.get("content-type")?.includes("application/pdf")){const err=await r.json();return alert(err.message||"Server returned invalid response");}const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`Quotation_${fmtQT(id,findInvoice(id)?.quotation_date||findInvoice(id)?.invoice_date)}.pdf`;a.click();URL.revokeObjectURL(url);}catch(e){alert("Download failed: "+e.message);} }} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50" title="Download PDF"><Download size={20}/></button>
             <button onClick={async()=>{const id=viewId||selectedId;if(!id)return alert("Select an invoice first");try{const r=await fetch(`${API}/api/quotations/${id}`,{headers:{Authorization:`Bearer ${localStorage.getItem("token")}`}});if(!r.ok)throw new Error("Failed");const data=await r.json();downloadAsHtml(data,"quotation");}catch(e){alert("Download failed: "+e.message);}}} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50" title="Download HTML"><FileText size={18}/></button>
 <button onClick={openMailModal} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50"><Mail size={18}/></button>
             {canEditDelete && <button onClick={()=>{if(!selectedId)return alert("Select an item");handleEdit(selectedId);}} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50"><Edit2 size={18}/></button>}
@@ -720,16 +734,21 @@ const handleSendEmail = async () => {
                 </thead>
                 <tbody>
                   {historyList.map(q => (
-                    <tr key={q.id} className="border-b hover:bg-indigo-50/40 transition">
+                    <tr key={q.id}
+                      onClick={() => setSelectedId(q.id)}
+                      onDoubleClick={() => { setViewId(q.id); setTimeout(() => setShowInvoice(true), 50); setHistoryOpen(false); }}
+                      className="border-b cursor-pointer hover:bg-indigo-50/40 transition">
                       <td className="px-4 py-3 font-semibold text-blue-600">
                         {fmtSubQT(historyRootId, q.version, q.invoice_date)}
                         <span className="ml-2 text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold">v{q.version || 1}</span>
                       </td>
-                      <td className="px-4 py-3 text-center text-gray-600">{fmtDate(q.invoice_date)}</td>
+                      <td className="px-4 py-3 text-center text-gray-600">{fmtDate(q.invoice_date || q.quotation_date)}</td>
                       <td className="px-4 py-3 text-right font-bold text-gray-800">&#8377;{q.grand_total?.toLocaleString()}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-2">
+                          <button onClick={e => { e.stopPropagation(); setViewId(q.id); setTimeout(() => setShowInvoice(true), 50); setHistoryOpen(false); }} title="View" className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center hover:bg-blue-100"><Eye size={14} /></button>
                           <button onClick={e => { e.stopPropagation(); handleEdit(q.id); setHistoryOpen(false); }} title="Edit" className="w-8 h-8 bg-green-50 text-green-600 rounded-lg flex items-center justify-center hover:bg-green-100"><Edit2 size={14} /></button>
+                          <button onClick={e => { e.stopPropagation(); setSelectedId(q.id); openMailModal(); setHistoryOpen(false); }} title="Email" className="w-8 h-8 bg-orange-50 text-orange-500 rounded-lg flex items-center justify-center hover:bg-orange-100"><Mail size={14} /></button>
                           <button onClick={e => deleteHistoryVersion(e, q.id)} title="Delete" className="w-8 h-8 bg-red-50 text-red-500 rounded-lg flex items-center justify-center hover:bg-red-100"><Trash2 size={14} /></button>
                         </div>
                       </td>
@@ -751,6 +770,12 @@ const handleSendEmail = async () => {
           </div>
           <Invoice quotationId={viewId} type="quotation" />
         </div>
+      )}
+      {showSMTPPrompt && (
+        <SMTPConfigPrompt 
+          email={(() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })()} 
+          onClose={() => setShowSMTPPrompt(false)} 
+        />
       )}
     </div>
   );

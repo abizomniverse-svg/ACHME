@@ -8,6 +8,7 @@ import axios from "axios";
 import { useAuth } from "../auth/AuthContext";
 import { API } from "../config";
 import { BRANCH_DATA, BRANCH_OPTIONS } from "../config/branchConfig";
+import SMTPConfigPrompt from "../components/SMTPConfigPrompt";
 
 
 const API_BACKEND = API;
@@ -74,6 +75,7 @@ const PerformaInvoice = () => {
   const [mailCc, setMailCc] = useState("");
   const [mailSubject, setMailSubject] = useState("");
   const [mailSending, setMailSending] = useState(false);
+  const [showSMTPPrompt, setShowSMTPPrompt] = useState(false);
   const [descInput, setDescInput] = useState("");
   const [brandInput, setBrandInput] = useState("");
   const [showAddAddress, setShowAddAddress] = useState(false);
@@ -100,6 +102,8 @@ const PerformaInvoice = () => {
     return `PI-${year}-${String(id).padStart(3, "0")}`;
   };
 
+  const findInvoice = (id) => performaInvoices.find(p => p.id === id) || historyList.find(p => p.id === id);
+
   const downloadPDF = async () => {
     const id = viewId || selectedId;
     if (!id) return alert("Select an invoice first");
@@ -113,7 +117,7 @@ const PerformaInvoice = () => {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url;
-      a.download = `ProformaInvoice_${formatPINumber(id, performaInvoices.find(p=>p.id===id)?.invoice_date)}.pdf`;
+      a.download = `ProformaInvoice_${formatPINumber(id, findInvoice(id)?.invoice_date)}.pdf`;
       a.click(); URL.revokeObjectURL(url);
     } catch(e) { alert("Download failed: " + e.message); }
   };
@@ -401,22 +405,36 @@ const PerformaInvoice = () => {
     } catch (error) { console.error(error); }
   };
 
-  const openMailModal = () => {
-    if (!selectedId) return alert("Select an invoice to send");
-    const inv = performaInvoices.find(p => p.id === selectedId);
+  const openMailModal = async () => {
+    const id = viewId || selectedId;
+    if (!id) return alert("Select an invoice to send");
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${API_BACKEND}/api/auth/check-email-config`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.data.hasConfig) {
+        setShowSMTPPrompt(true);
+        return;
+      }
+    } catch (e) {
+      console.error("Error checking SMTP config before sending mail:", e);
+    }
+    const inv = findInvoice(id);
     setMailTo(inv?.email || "");
     setMailCc(user?.email || "");
-    setMailSubject(`Proforma Invoice ${formatPINumber(selectedId, inv?.invoice_date)}`);
+    setMailSubject(`Proforma Invoice ${formatPINumber(id, inv?.invoice_date)}`);
     setMailOpen(true);
   };
 
   const handleSendEmail = async () => {
+    const id = viewId || selectedId;
     if (!mailTo) return alert("Please enter recipient email");
     setMailSending(true);
     try {
       const token = localStorage.getItem("token");
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      await axios.post(`${API_BACKEND}/api/performainvoice/send-email/${selectedId}`, { to: mailTo, cc: mailCc, subject: mailSubject }, config);
+      await axios.post(`${API_BACKEND}/api/performainvoice/send-email/${id}`, { to: mailTo, cc: mailCc, subject: mailSubject }, config);
       alert("Email sent successfully"); setMailOpen(false);
     } catch (error) { alert(error.response?.data?.message || "Failed to send email"); }
     finally { setMailSending(false); }
@@ -1097,6 +1115,12 @@ const PerformaInvoice = () => {
           </div>
           <Invoice quotationId={viewId} type="proforma" />
         </div>
+      )}
+      {showSMTPPrompt && (
+        <SMTPConfigPrompt 
+          email={user?.email || ""} 
+          onClose={() => setShowSMTPPrompt(false)} 
+        />
       )}
     </div>
   );

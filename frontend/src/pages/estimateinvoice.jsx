@@ -7,6 +7,7 @@ import axios from "axios";
 import { API } from "../config";
 import Invoice from "../components/invoicetemplate";
 import { BRANCH_DATA, BRANCH_OPTIONS, BANK_DETAILS } from "../config/branchConfig";
+import SMTPConfigPrompt from "../components/SMTPConfigPrompt";
 import "../Styles/tailwind.css";
 
 const UOM_OPTIONS = ["Nos", "Units", "Pieces", "Boxes", "Sets", "Meters", "Kg", "Liters"];
@@ -52,6 +53,7 @@ const EstimateInvoice = () => {
   const [mailCc, setMailCc] = useState("");
   const [mailSubject, setMailSubject] = useState("");
   const [mailSending, setMailSending] = useState(false);
+  const [showSMTPPrompt, setShowSMTPPrompt] = useState(false);
   const [descInput, setDescInput] = useState("");
   const [brandInput, setBrandInput] = useState("");
   const [newAddrLabel, setNewAddrLabel] = useState("");
@@ -76,6 +78,7 @@ const EstimateInvoice = () => {
     const year = dateStr ? new Date(dateStr).getFullYear() : new Date().getFullYear();
     return `EI-${year}-${String(id).padStart(3, "0")}`;
   };
+  const findInvoice = (id) => estimateInvoices.find(p => p.id === id) || historyList.find(p => p.id === id);
 
   useEffect(() => {
     fetchEstimateInvoices();
@@ -301,21 +304,32 @@ const EstimateInvoice = () => {
     } catch (error) { console.error(error); }
   };
 
-  const openMailModal = () => {
-    if (!selectedId) return alert("Select an invoice to send");
-    const inv = estimateInvoices.find(p => p.id === selectedId);
+  const openMailModal = async () => {
+    const id = viewId || selectedId;
+    if (!id) return alert("Select an invoice to send");
+    try {
+      const res = await axios.get(`${API}/api/auth/check-email-config`, getAuthConfig());
+      if (!res.data.hasConfig) {
+        setShowSMTPPrompt(true);
+        return;
+      }
+    } catch (e) {
+      console.error("Error checking SMTP config before sending mail:", e);
+    }
+    const inv = findInvoice(id);
     const adminEmail = (() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })();
     setMailTo(inv?.email || "");
     setMailCc(adminEmail);
-    setMailSubject(`Estimate Invoice ${formatEINumber(selectedId, inv?.invoice_date)}`);
+    setMailSubject(`Estimate Invoice ${formatEINumber(id, inv?.invoice_date)}`);
     setMailOpen(true);
   };
 
   const handleSendEmail = async () => {
+    const id = viewId || selectedId;
     if (!mailTo) return alert("Please enter recipient email");
     setMailSending(true);
     try {
-      await axios.post(`${API}/api/estimate-invoice/send-email/${selectedId}`, { to: mailTo, cc: mailCc, subject: mailSubject }, getAuthConfig());
+      await axios.post(`${API}/api/estimate-invoice/send-email/${id}`, { to: mailTo, cc: mailCc, subject: mailSubject }, getAuthConfig());
       alert("Email sent successfully"); setMailOpen(false);
     } catch (error) { alert(error.response?.data?.message || "Failed to send email"); }
     finally { setMailSending(false); }
@@ -364,7 +378,7 @@ const EstimateInvoice = () => {
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a"); a.href = url;
-                a.download = `Estimation_${formatEINumber(id, estimateInvoices.find(p=>p.id===id)?.invoice_date)}.pdf`;
+                a.download = `Estimation_${formatEINumber(id, findInvoice(id)?.invoice_date)}.pdf`;
                 a.click(); URL.revokeObjectURL(url);
               } catch(e) { alert("Download failed: " + e.message); }
             }} title="Download PDF" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Download size={20} /></button>
@@ -943,6 +957,12 @@ const EstimateInvoice = () => {
           </div>
           <Invoice quotationId={viewId} type="estimation" />
         </div>
+      )}
+      {showSMTPPrompt && (
+        <SMTPConfigPrompt 
+          email={(() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })()} 
+          onClose={() => setShowSMTPPrompt(false)} 
+        />
       )}
     </div>
   );

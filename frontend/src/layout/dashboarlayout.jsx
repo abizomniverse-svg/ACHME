@@ -8,6 +8,7 @@ import Topbar from "../components/navbar";
 import AdminSidebar from "../sidebars/adminsidebar";
 import UserSidebar from "../sidebars/usersidebar";
 import MobileBottomNav from "../components/MobileBottomNav";
+import SMTPConfigPrompt from "../components/SMTPConfigPrompt";
 import { initMobileTables } from "../utils/mobileTableHelper";
 
 export const DashboardSearchContext = createContext("");
@@ -20,9 +21,34 @@ export default function DashboardLayout() {
   const [reminderData, setReminderData] = useState(null);
   const [reminderNotes, setReminderNotes] = useState(null);
   const [escalations, setEscalations] = useState([]);
+  const [showSMTPPrompt, setShowSMTPPrompt] = useState(false);
   const location = useLocation();
 
   useEffect(() => { initMobileTables(); }, []);
+
+  useEffect(() => {
+    if (user) {
+      const checkSMTP = () => {
+        axios.get(`${API}/api/auth/check-email-config`)
+          .then(res => {
+            if (!res.data.hasConfig) {
+              const lastClosed = localStorage.getItem("smtp_prompt_last_closed");
+              const now = Date.now();
+              if (!lastClosed || (now - parseInt(lastClosed)) > 3 * 60 * 60 * 1000) {
+                setShowSMTPPrompt(true);
+              }
+            } else {
+              setShowSMTPPrompt(false);
+            }
+          })
+          .catch(err => console.error("Error checking SMTP config:", err));
+      };
+
+      checkSMTP();
+      const interval = setInterval(checkSMTP, 5 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
 
   useEffect(() => {
     const fetchEscalations = async () => {
@@ -98,6 +124,13 @@ export default function DashboardLayout() {
       <div className="md:hidden">
         <MobileBottomNav onMenuOpen={() => setSidebarOpen(true)} />
       </div>
+
+      {showSMTPPrompt && user && (
+        <SMTPConfigPrompt 
+          email={user.email} 
+          onClose={() => setShowSMTPPrompt(false)} 
+        />
+      )}
     </ReminderContext.Provider>
     </DashboardSearchContext.Provider>
   );

@@ -5,6 +5,7 @@ import ClientSearchDropdown from "../components/ClientSearchDropdown";
 import "../Styles/tailwind.css";
 
 import { API as BASE_API } from "../config";
+import SMTPConfigPrompt from "../components/SMTPConfigPrompt";
 
 function Products() {
   const API = `${BASE_API}/api`;
@@ -41,6 +42,7 @@ function Products() {
   const [mailCc, setMailCc] = useState("");
   const [mailSubject, setMailSubject] = useState("");
   const [mailSending, setMailSending] = useState(false);
+  const [showSMTPPrompt, setShowSMTPPrompt] = useState(false);
   const [selectedServiceId, setSelectedServiceId] = useState(null);
 
   const getAuthConfig = () => {
@@ -145,7 +147,16 @@ function Products() {
     setEditId(null);
   };
 
-  const openMailModal = (service) => {
+  const openMailModal = async (service) => {
+    try {
+      const res = await axios.get(`${BASE_API}/api/auth/check-email-config`, getAuthConfig());
+      if (!res.data.hasConfig) {
+        setShowSMTPPrompt(true);
+        return;
+      }
+    } catch (e) {
+      console.error("Error checking SMTP config before sending mail:", e);
+    }
     setSelectedServiceId(service.id);
     const clientEmail = selectedClientData?.email || service.client_email || "";
     const adminEmail = (() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })();
@@ -523,6 +534,12 @@ function Products() {
           </div>
         </div>
       </div>
+      {showSMTPPrompt && (
+        <SMTPConfigPrompt 
+          email={(() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })()} 
+          onClose={() => setShowSMTPPrompt(false)} 
+        />
+      )}
     </div>
   );
 }
