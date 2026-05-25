@@ -826,7 +826,8 @@ async function seedDefaultEmployees() {
     { first_name: "Moorthi", last_name: "", emp_id: "AC015", email: "sales5@technostore.co.in", mobile: "", job_title: "Sales", emp_role: "Sales" },
     { first_name: "Uma", last_name: "Kalyani", emp_id: "AC010", email: "uma@achmecommunication.com", mobile: "", job_title: "Sales", emp_role: "Sales" },
     { first_name: "Nagaraj", last_name: "", emp_id: "AC014", email: "nagaraj@technostore.co.in", mobile: "", job_title: "Sales", emp_role: "Sales" },
-    { first_name: "Priyanka", last_name: "", emp_id: "AC099", email: "service@achmecommunication.com", mobile: "", job_title: "Sales", emp_role: "Sales" }
+    { first_name: "Priyanka", last_name: "", emp_id: "AC099", email: "service@achmecommunication.com", mobile: "", job_title: "Sales", emp_role: "Sales" },
+    { first_name: "Malarvannan", last_name: "", emp_id: "AC016", email: "malarvannan@technostore.co.in", mobile: "", job_title: "Service", emp_role: "Sales" }
   ];
 
   for (const employee of employees) {

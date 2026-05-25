@@ -56,18 +56,19 @@ function initNotificationsSocket(io, corsOrigin = "*") {
     const message = data.message || getNotificationMessage(type, data);
     const priority = data.priority || "normal";
 
-    const shouldEmit = VISIBLE_TYPES.includes(type);
+    const shouldEmit = true; // Emit all notifications to enable full notifications functionality
 
     const emitToEmployee = () => {
       if (!targetUserId) return;
 
-      const relatedId = data.taskId || data.leadId || data.targetId || data.id || null;
+      const relatedId = data.taskId || data.leadId || data.targetId || data.id || 0; // Use 0 instead of null since task_id is NOT NULL
 
       db.query(
         "INSERT INTO notifications (task_id, user_id, type, title, description) VALUES (?, ?, ?, ?, ?)",
         [relatedId, targetUserId, type, data.title || type, message],
         (err, result) => {
           if (err) {
+            console.error("[Notification Sockets] DB insert error:", err.message);
             if (shouldEmit) notificationIO.to(`notifications:${targetUserId}`).emit("new_notification", notification);
             return;
           }
@@ -87,13 +88,14 @@ function initNotificationsSocket(io, corsOrigin = "*") {
       return;
     }
 
-    const relatedId = data.taskId || data.leadId || data.targetId || data.id || null;
+    const relatedId = data.taskId || data.leadId || data.targetId || data.id || 0;
 
     db.query(
       "INSERT INTO admin_notifications (type, message, user_id, related_id, related_type, created_by, priority) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [type, message, data.userId || null, relatedId, data.type || null, data.userId || null, priority],
       (err, result) => {
         if (err) {
+          console.error("[Notification Sockets] Admin DB insert error:", err.message);
           return emitToEmployee();
         }
 

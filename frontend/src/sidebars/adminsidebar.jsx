@@ -99,11 +99,6 @@ const Sidebar = ({ onNavigate }) => {
                   {item.icon}
                   <span className="text-sm font-medium">{item.title}</span>
                 </div>
-                {item.badge > 0 && (
-                  <span className="badge badge-orange">
-                    {item.badge}
-                  </span>
-                )}
               </Link>
             ) : (
               <>

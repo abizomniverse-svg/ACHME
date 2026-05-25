@@ -39,8 +39,9 @@ const BANK_DETAILS = [
 ];
 
 const BRANCHES = {
-  Bangalore: { name: "Bangalore", address: "14th Main Road, GK Layout, Electronic City Post, Bangalore - 560100", gstin: "29AAHFA7876M1ZM" },
-  Chennai: { name: "Chennai", address: "5th Floor, 5CD PM Towers, Dreams Road, Thousand Lights, Chennai - 600006", gstin: "33AAHFA7876M1ZX" },
+  Coimbatore: { name: "Coimbatore", address: "Opp to SMS Hotel, Peelamedu, Avinashi Road, Coimbatore-641004", gstin: "33AAHFA7876M1ZX" },
+  Bangalore: { name: "Bangalore", address: "14th Main Road, GK Layout, Electronic City Post, Bangalore-560100", gstin: "29AAHFA7876M1ZM" },
+  Chennai: { name: "Chennai", address: "5th Floor, 5CD PM Towers, Dreams Road, Thousand Lights, Chennai-600006", gstin: "33AAHFA7876M1ZX" },
 };
 
 async function generateInvoicePdf({ invoice, items, type, label, prefix }) {
@@ -82,6 +83,7 @@ async function generateInvoicePdf({ invoice, items, type, label, prefix }) {
   const showIGST = totalIGST > 0;
   const showDiscount = totalDiscount > 0;
   const hasHSN = (items || []).some((i) => i.hsn_sac);
+  const hasBrandModel = (items || []).some((r) => r.brand_model && String(r.brand_model).trim() !== "");
 
   const terms = [];
   if (h.terms_general) terms.push("General Terms & Conditions apply.");
@@ -130,20 +132,15 @@ async function generateInvoicePdf({ invoice, items, type, label, prefix }) {
     .map(([, v]) => v);
 
   const itemRows = (items || []).map((item, i) => {
-    const desc = item.description || "";
-    const commaIdx = desc.indexOf(",");
-    const productName = commaIdx > -1 ? desc.slice(0, commaIdx).trim() : desc;
-    const specDetails = commaIdx > -1 ? desc.slice(commaIdx + 1).trim() : "";
     const qty = Number(item.quantity || 0);
     const price = Number(item.price || 0);
     const lineTotal = qty * price;
     return `<tr>
       <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#1a1f2e;vertical-align:top;">${i + 1}</td>
+      ${hasBrandModel ? `<td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#444;vertical-align:top;">${esc(item.brand_model || "---")}</td>` : ""}
       <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#1a1f2e;vertical-align:top;">
-        <strong>${esc(productName)}</strong>
-        ${specDetails ? `<div style="font-size:10px;color:#64748b;margin-top:2px;">${esc(specDetails)}</div>` : ""}
+        <strong>${esc(item.description || "---")}</strong>
       </td>
-      <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#444;vertical-align:top;">${esc(item.brand_model || "---")}</td>
       ${hasHSN ? `<td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#444;vertical-align:top;">${esc(item.hsn_sac || "---")}</td>` : ""}
       <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#1a1f2e;vertical-align:top;text-align:center;">${qty}</td>
       <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#1a1f2e;vertical-align:top;">${esc(item.uom || "Nos")}</td>
@@ -332,10 +329,10 @@ async function generateInvoicePdf({ invoice, items, type, label, prefix }) {
             <div class="bt">BILLED TO</div>
             <h3>${esc(h.customer_name || "---")}</h3>
             ${h.client_company ? `<div class="cp">${esc(h.client_company)}</div>` : ""}
-            ${h.mobile_number ? `<div class="cl"><span class="cl-label">Ph:</span><span class="cl-value">${esc(h.mobile_number)}</span></div>` : ""}
+            ${(clientAddr || h.client_pincode) ? `<div class="cp" style="margin-top:6px;">${esc(clientAddr)}${clientPin}${clientCountry}</div>` : ""}
+            ${h.mobile_number ? `<div class="cl" style="margin-top:6px;"><span class="cl-label">Ph:</span><span class="cl-value">${esc(h.mobile_number)}</span></div>` : ""}
             ${h.email ? `<div class="cl"><span class="cl-label">Email:</span><span class="cl-value">${esc(h.email)}</span></div>` : ""}
             ${h.gst_number ? `<div class="cl"><span class="cl-label">GST:</span><span class="cl-value">${esc(h.gst_number)}</span></div>` : ""}
-            ${(clientAddr || h.client_pincode) ? `<div class="cp" style="margin-top:10px;">${esc(clientAddr)}${clientPin}${clientCountry}</div>` : ""}
           </div>
         </div>
       </div>
@@ -346,8 +343,8 @@ async function generateInvoicePdf({ invoice, items, type, label, prefix }) {
           <thead>
             <tr>
               <th style="width:30px;">S.NO</th>
+              ${hasBrandModel ? "<th>BRAND / MODEL</th>" : ""}
               <th>DESCRIPTION</th>
-              <th>BRAND / MODEL</th>
               ${hasHSN ? "<th>HSN/SAC</th>" : ""}
               <th style="width:40px;text-align:center;">QTY</th>
               <th style="width:50px;">UOM</th>

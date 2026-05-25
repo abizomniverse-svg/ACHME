@@ -117,15 +117,15 @@ const SearchableSelect = ({ options, value, onChange, placeholder, label, onSear
             ) : filtered.length === 0 ? (
               <div className="px-3 py-2 text-xs" style={{ color: "var(--color-steel, #787671)" }}>{onSearch ? "Type to search..." : "No results"}</div>
             ) : (
-              filtered.map((opt, idx) => {
-                const val = typeof opt === "string" ? opt : opt.value;
-                const lbl = typeof opt === "string" ? opt : opt.label;
-                return (
-                  <div key={idx} className="px-3 py-2 text-sm cursor-pointer transition-colors" style={{ backgroundColor: value === val ? "rgba(86, 69, 212, 0.1)" : "transparent", color: value === val ? "var(--color-primary, #5645d4)" : "var(--color-ink, #1a1a1a)" }} onClick={e => { e.stopPropagation(); onChange(val); setIsOpen(false); }} onMouseEnter={e => { if (value !== val) e.target.style.backgroundColor = "var(--color-surface, #f6f5f4)"; }} onMouseLeave={e => { if (value !== val) e.target.style.backgroundColor = "transparent"; }}>
-                    {lbl}
-                  </div>
-                );
-              })
+               filtered.map((opt, idx) => {
+                 const val = typeof opt === "string" ? opt : opt.value;
+                 const lbl = typeof opt === "string" ? opt : opt.label;
+                 return (
+                   <div key={idx} className="px-3 py-2 text-sm cursor-pointer transition-colors" style={{ backgroundColor: value === val ? "rgba(86, 69, 212, 0.1)" : "var(--color-surface, #f6f5f4)", color: value === val ? "var(--color-primary, #5645d4)" : "var(--color-ink, #1a1a1a)" }} onClick={e => { e.stopPropagation(); onChange(val); setIsOpen(false); }} onMouseEnter={e => { if (value !== val) e.target.style.backgroundColor = "var(--color-surface, #f6f5f4)"; }} onMouseLeave={e => { if (value !== val) e.target.style.backgroundColor = "var(--color-surface, #f6f5f4)"; }}>
+                     {lbl}
+                   </div>
+                 );
+               })
             )}
           </div>
         </div>
@@ -146,7 +146,7 @@ const FormField = ({ label, children, className, required, icon }) => (
   </div>
 );
 
-const inputBase = "w-full p-2.5 text-sm outline-none transition-all duration-150";
+const inputBase = "w-full p-2.5 text-sm outline-none transition-all duration-150 bg-white text-gray-900 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 shadow-sm";
 
 const SectionDivider = ({ icon: Icon, title }) => (
   <div className="flex items-center gap-2 py-2" style={{ borderBottom: "1px solid var(--color-hairline, #e5e3df)" }}>
@@ -179,8 +179,8 @@ const DetailModal = ({ call, onClose, formatCurrency }) => {
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-      <div className="bg-card rounded-2xl w-full max-w-4xl shadow-2xl max-h-[90vh] overflow-y-auto border border-border animate-scale-in" onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 bg-card/95 backdrop-blur-md border-b border-border px-6 py-4 flex justify-between items-center z-10">
+      <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl max-h-[90vh] overflow-y-auto border border-border animate-scale-in" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-border px-6 py-4 flex justify-between items-center z-10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-primary/10">
               <FileText size={18} className="text-primary" />
@@ -297,7 +297,7 @@ const DetailModal = ({ call, onClose, formatCurrency }) => {
           )}
         </div>
 
-        <div className="sticky bottom-0 bg-card/95 backdrop-blur-md border-t border-border px-6 py-4 flex justify-end gap-3">
+        <div className="sticky bottom-0 bg-white border-t border-border px-6 py-4 flex justify-end gap-3">
           <button onClick={onClose} className="px-6 py-2.5 border border-border rounded-lg text-sm font-semibold text-muted-foreground hover:bg-muted/50 transition-colors">Close</button>
         </div>
       </div>
@@ -356,12 +356,28 @@ const CallReport = () => {
   const fetchCalls = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/api/call-reports`, getAuthConfig());
-      setCalls(res.data || []);
-    } catch (err) { console.error(err); }
+      const data = res.data || [];
+      setCalls(data);
+      localStorage.setItem("cached_calls", JSON.stringify(data));
+    } catch (err) {
+      console.error("Fetch calls error, loading cache:", err);
+      try {
+        const cached = localStorage.getItem("cached_calls");
+        if (cached) setCalls(JSON.parse(cached));
+      } catch (e) { console.error(e); }
+    }
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchCalls(); }, [fetchCalls]);
+  useEffect(() => {
+    // Instant offline/cached startup before network call resolves
+    try {
+      const cached = localStorage.getItem("cached_calls");
+      if (cached) setCalls(JSON.parse(cached));
+    } catch (e) { console.error(e); }
+
+    fetchCalls();
+  }, [fetchCalls]);
 
   useEffect(() => {
     const handler = () => fetchCalls();
@@ -737,6 +753,7 @@ const CallReport = () => {
         location_city: contract.location_city || "",
         invoice_value: contract.invoice_value || basicForm.invoice_value,
       });
+      setBasicContractSearchResults([]);
     }
   };
 
@@ -883,19 +900,19 @@ const CallReport = () => {
                 <Search size={16} className="text-muted-foreground" />
                 <input type="text" placeholder="Search by customer, call ID, engineer..." className="outline-none text-sm w-full bg-transparent text-foreground" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
               </div>
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm outline-none bg-card text-foreground hover:border-primary/30 transition-colors">
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm outline-none bg-white text-foreground hover:border-primary/30 transition-colors">
                 <option value="All">All Status</option>
                 {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
-              <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm outline-none bg-card text-foreground hover:border-primary/30 transition-colors">
+              <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm outline-none bg-white text-foreground hover:border-primary/30 transition-colors">
                 <option value="All">All Priority</option>
                 {PRIORITY_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
-              <select value={engineerFilter} onChange={e => setEngineerFilter(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm outline-none bg-card text-foreground hover:border-primary/30 transition-colors">
+              <select value={engineerFilter} onChange={e => setEngineerFilter(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm outline-none bg-white text-foreground hover:border-primary/30 transition-colors">
                 <option value="All">All Engineers</option>
                 {ENGINEERS.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
               </select>
-              <select value={paymentStatusFilter} onChange={e => setPaymentStatusFilter(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm outline-none bg-card text-foreground hover:border-primary/30 transition-colors">
+              <select value={paymentStatusFilter} onChange={e => setPaymentStatusFilter(e.target.value)} className="border border-border rounded-lg px-3 py-2 text-sm outline-none bg-white text-foreground hover:border-primary/30 transition-colors">
                 <option value="All">All Payments</option>
                 {PAYMENT_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -1284,7 +1301,7 @@ const CallReport = () => {
                            style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }}
                          />
                          {customerSearchResults.length > 0 && (
-                           <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-card shadow-lg mt-1">
+                           <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-white shadow-lg mt-1">
                              {customerSearchResults.map((customer, idx) => (
                                <div 
                                  key={idx} 
@@ -1370,7 +1387,7 @@ const CallReport = () => {
                   style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }}
                 />
                 {basicContractSearchResults.length > 0 && (
-                  <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-card shadow-lg mt-1">
+                  <div className="absolute z-50 w-full mt-1 overflow-hidden border border-hairline rounded-md bg-white shadow-lg mt-1">
                     {basicContractSearchResults.map((contract, idx) => (
                       <div 
                         key={idx} 
@@ -1431,8 +1448,8 @@ const CallReport = () => {
       {/* Edit Modal (original full form) */}
       {modalOpen && isEdit && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex justify-center overflow-y-auto pt-4 pb-4 animate-fade-in" onClick={() => { setModalOpen(false); resetForm(); }}>
-          <div className="bg-card rounded-2xl w-[95%] max-w-4xl shadow-2xl my-4 relative border border-border animate-scale-in" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 bg-card/95 backdrop-blur-md border-b border-border px-4 sm:px-6 py-4 flex justify-between items-center z-20">
+          <div className="bg-white rounded-2xl w-[95%] max-w-4xl shadow-2xl my-4 relative border border-border animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-border px-4 sm:px-6 py-4 flex justify-between items-center z-20">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-accent/10">
                   <Edit size={18} className="text-accent" />
@@ -1553,8 +1570,8 @@ const CallReport = () => {
       {/* Step 2 - Detail Form (double-click or Complete button) */}
       {step2ModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex justify-center overflow-y-auto pt-4 pb-4 animate-fade-in" onClick={() => { setStep2ModalOpen(false); }}>
-          <div className="bg-card rounded-2xl w-[95%] max-w-3xl shadow-2xl my-4 relative border border-border animate-scale-in" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 bg-card/95 backdrop-blur-md border-b border-border px-4 sm:px-6 py-4 flex justify-between items-center z-20">
+          <div className="bg-white rounded-2xl w-[95%] max-w-3xl shadow-2xl my-4 relative border border-border animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-border px-4 sm:px-6 py-4 flex justify-between items-center z-20">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-amber-500/10">
                   <Clock size={18} className="text-amber-500" />

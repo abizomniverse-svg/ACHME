@@ -28,30 +28,67 @@ export const NotificationProvider = ({ children }) => {
     if (!user) return;
     const token = localStorage.getItem("token");
     if (!token) return;
+
+    const loadCached = () => {
+      try {
+        const cachedNotifs = localStorage.getItem("cached_notifications");
+        const cachedAdminNotifs = localStorage.getItem("cached_admin_notifications");
+        const cachedUnread = localStorage.getItem("cached_unread_count");
+        const cachedAdminUnread = localStorage.getItem("cached_admin_unread_count");
+        if (cachedNotifs) setNotifications(JSON.parse(cachedNotifs));
+        if (cachedAdminNotifs) setAdminNotifications(JSON.parse(cachedAdminNotifs));
+        if (cachedUnread) setUnreadCount(Number(cachedUnread) || 0);
+        if (cachedAdminUnread) setAdminUnreadCount(Number(cachedAdminUnread) || 0);
+      } catch (e) { console.error(e); }
+    };
+
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const [notifRes, countRes] = await Promise.all([
         axios.get(`${API}/api/notifications?limit=50`, { headers }),
         axios.get(`${API}/api/notifications/unread-count`, { headers }),
       ]);
-      setNotifications((notifRes.data || []).map(n => normalizeNotif(n, "employee")));
-      setUnreadCount(countRes.data?.count || 0);
+      const empNotifs = (notifRes.data || []).map(n => normalizeNotif(n, "employee"));
+      const empUnread = countRes.data?.count || 0;
+      setNotifications(empNotifs);
+      setUnreadCount(empUnread);
+
+      localStorage.setItem("cached_notifications", JSON.stringify(empNotifs));
+      localStorage.setItem("cached_unread_count", String(empUnread));
 
       if (user.role === "admin") {
         const [adminRes, adminCountRes] = await Promise.all([
           axios.get(`${API}/api/notifications/admin?limit=50`, { headers }),
           axios.get(`${API}/api/notifications/admin/unread-count`, { headers }),
         ]);
-        setAdminNotifications((adminRes.data || []).map(n => normalizeNotif(n, "admin")));
-        setAdminUnreadCount(adminCountRes.data?.count || 0);
+        const adminNotifs = (adminRes.data || []).map(n => normalizeNotif(n, "admin"));
+        const adminUnread = adminCountRes.data?.count || 0;
+        setAdminNotifications(adminNotifs);
+        setAdminUnreadCount(adminUnread);
+
+        localStorage.setItem("cached_admin_notifications", JSON.stringify(adminNotifs));
+        localStorage.setItem("cached_admin_unread_count", String(adminUnread));
       }
     } catch (err) {
-      // Silently fail - notifications are non-critical
+      console.error("Fetch notifications error, loading cache:", err);
+      loadCached();
     }
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
+
+    // Instant offline/cached startup before network call resolves
+    try {
+      const cachedNotifs = localStorage.getItem("cached_notifications");
+      const cachedAdminNotifs = localStorage.getItem("cached_admin_notifications");
+      const cachedUnread = localStorage.getItem("cached_unread_count");
+      const cachedAdminUnread = localStorage.getItem("cached_admin_unread_count");
+      if (cachedNotifs) setNotifications(JSON.parse(cachedNotifs));
+      if (cachedAdminNotifs) setAdminNotifications(JSON.parse(cachedAdminNotifs));
+      if (cachedUnread) setUnreadCount(Number(cachedUnread) || 0);
+      if (cachedAdminUnread) setAdminUnreadCount(Number(cachedAdminUnread) || 0);
+    } catch (e) { console.error(e); }
 
     fetchNotifications();
 
@@ -73,13 +110,12 @@ export const NotificationProvider = ({ children }) => {
 
     // Listen for new notifications
     socket.on("new_notification", (notification) => {
-      if (!["missed_reminder_alert", "target_completed"].includes(notification.type)) return;
-
       const normalized = normalizeNotif(notification, user.role === "admin" ? "admin" : "employee");
+      const targetUserId = notification.data?.user_id || notification.data?.userId;
 
       // Employees: only see their own notifications
       if (user.role === "employee") {
-        if (notification.data?.user_id && notification.data.user_id !== user.id) return;
+        if (targetUserId && Number(targetUserId) !== Number(user.id)) return;
         setNotifications(prev => {
           const exists = prev.some(n => n.dbId === normalized.dbId || (n.id === normalized.id && n._source === "employee"));
           if (exists) return prev;
@@ -99,7 +135,7 @@ export const NotificationProvider = ({ children }) => {
         setAdminUnreadCount(prev => prev + 1);
 
         // Also add to employee array if it targets a specific user
-        if (notification.data?.user_id) {
+        if (targetUserId) {
           setNotifications(prev => {
             const exists = prev.some(n => n.dbId === normalized.dbId || (n.id === normalized.id && n._source === "employee"));
             if (exists) return prev;
@@ -109,16 +145,26 @@ export const NotificationProvider = ({ children }) => {
         }
       }
 
-      // Show browser push notification for key types
-      const pushTypes = ["missed_reminder_alert", "target_completed"];
-      if (pushTypes.includes(notification.type) && isPushSupported() && Notification.permission === "granted") {
+      // Show browser push notification for ALL types
+      if (isPushSupported()) {
         const title = notification.data?.title || getPushTitle(notification.type);
         const body = notification.data?.message || notification.message || "";
-        showPushNotification(title, {
-          body: body.substring(0, 100),
-          tag: notification.type,
-          onClick: () => { window.focus(); window.location.href = "/dashboard/notifications"; }
-        });
+        
+        const triggerPush = () => {
+          showPushNotification(title, {
+            body: body.substring(0, 150),
+            tag: notification.type + "-" + (notification.id || notification.dbId || Date.now()),
+            onClick: () => { window.focus(); window.location.href = "/dashboard/notifications"; }
+          });
+        };
+
+        if (Notification.permission === "granted") {
+          triggerPush();
+        } else if (Notification.permission === "default") {
+          requestPushPermission().then(granted => {
+            if (granted) triggerPush();
+          });
+        }
       }
     });
 

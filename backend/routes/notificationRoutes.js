@@ -9,7 +9,7 @@ router.get("/", verifyToken, (req, res) => {
   const { type, limit, offset } = req.query;
   const params = [];
 
-  let sql = "SELECT * FROM notifications WHERE type IN ('missed_reminder_alert', 'target_completed')";
+  let sql = "SELECT * FROM notifications WHERE 1=1";
 
   if (role === "employee") {
     sql += " AND (user_id = ? OR user_id IS NULL)";
@@ -44,7 +44,7 @@ router.get("/", verifyToken, (req, res) => {
 // GET unread count for current user
 router.get("/unread-count", verifyToken, (req, res) => {
   const { id: user_id, role } = req.user;
-  let sql = "SELECT COUNT(*) as count FROM notifications WHERE is_read = 0 AND type IN ('missed_reminder_alert', 'target_completed')";
+  let sql = "SELECT COUNT(*) as count FROM notifications WHERE is_read = 0";
   const params = [];
 
   if (role === "employee") {
@@ -104,7 +104,7 @@ router.get("/admin", verifyToken, isAdmin, (req, res) => {
     SELECT an.*, tm.first_name as employee_name
     FROM admin_notifications an
     LEFT JOIN teammember tm ON an.user_id = tm.user_id
-    WHERE an.type IN ('missed_reminder_alert', 'target_completed')
+    WHERE 1=1
   `;
 
   if (type) {
@@ -133,7 +133,7 @@ router.get("/admin", verifyToken, isAdmin, (req, res) => {
 // GET admin unread count
 router.get("/admin/unread-count", verifyToken, isAdmin, (req, res) => {
   db.query(
-    "SELECT COUNT(*) as count FROM admin_notifications WHERE is_read = 0 AND type IN ('missed_reminder_alert', 'target_completed')",
+    "SELECT COUNT(*) as count FROM admin_notifications WHERE is_read = 0",
     (err, result) => {
       if (err) return res.status(500).json(err);
       res.json({ count: result[0].count });
@@ -229,10 +229,10 @@ router.get("/employees", verifyToken, isAdmin, (req, res) => {
       tm.last_name,
       tm.emp_role,
       tm.user_id,
-      COUNT(DISTINCT CASE WHEN n.is_read = 0 AND n.is_archived = 0 AND n.type IN ('missed_reminder_alert', 'target_completed') THEN n.id END) as unread_count,
-      COUNT(DISTINCT CASE WHEN n.is_archived = 0 AND n.type IN ('missed_reminder_alert', 'target_completed') THEN n.id END) as total_count,
-      COUNT(DISTINCT CASE WHEN an.is_read = 0 AND an.is_archived = 0 AND an.user_id = tm.user_id AND an.type IN ('missed_reminder_alert', 'target_completed') THEN an.id END) as admin_unread_count,
-      COUNT(DISTINCT CASE WHEN an.is_archived = 0 AND an.user_id = tm.user_id AND an.type IN ('missed_reminder_alert', 'target_completed') THEN an.id END) as admin_total_count
+      COUNT(DISTINCT CASE WHEN n.is_read = 0 AND n.is_archived = 0 THEN n.id END) as unread_count,
+      COUNT(DISTINCT CASE WHEN n.is_archived = 0 THEN n.id END) as total_count,
+      COUNT(DISTINCT CASE WHEN an.is_read = 0 AND an.is_archived = 0 AND an.user_id = tm.user_id THEN an.id END) as admin_unread_count,
+      COUNT(DISTINCT CASE WHEN an.is_archived = 0 AND an.user_id = tm.user_id THEN an.id END) as admin_total_count
     FROM teammember tm
     LEFT JOIN notifications n ON n.user_id = tm.user_id
     LEFT JOIN admin_notifications an ON an.user_id = tm.user_id
@@ -256,7 +256,7 @@ router.get("/employee/:userId", verifyToken, isAdmin, (req, res) => {
     SELECT n.*, tm.first_name as employee_name
     FROM notifications n
     LEFT JOIN teammember tm ON n.user_id = tm.user_id
-    WHERE n.user_id = ? AND n.type IN ('missed_reminder_alert', 'target_completed')
+    WHERE n.user_id = ?
   `;
 
   if (archived === "true") {
@@ -288,7 +288,7 @@ router.get("/admin/employee/:userId", verifyToken, isAdmin, (req, res) => {
     SELECT an.*, tm.first_name as employee_name
     FROM admin_notifications an
     LEFT JOIN teammember tm ON an.user_id = tm.user_id
-    WHERE an.user_id = ? AND an.type IN ('missed_reminder_alert', 'target_completed')
+    WHERE an.user_id = ?
   `;
 
   if (archived === "true") {

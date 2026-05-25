@@ -138,8 +138,8 @@ const Task = () => {
 
   const [tasks, setTasks] = useState([]);
   const [taskTargets, setTaskTargets] = useState([]);
-  const [teamMembers, setTeamMembers] = useState([]);
   const [achievements, setAchievements] = useState([]);
+  const [teamMembers, setTeamMembers] = useState([]);
   const [activeTab, setActiveTab] = useState("tasks");
   const [lastUpdate, setLastUpdate] = useState(null);
 
@@ -195,6 +195,17 @@ const Task = () => {
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchAll = async () => {
+    const loadCached = () => {
+      try {
+        const cachedTasks = localStorage.getItem("cached_tasks");
+        const cachedTargets = localStorage.getItem("cached_targets");
+        const cachedTeam = localStorage.getItem("cached_team_members");
+        if (cachedTasks) setTasks(JSON.parse(cachedTasks));
+        if (cachedTargets) setTaskTargets(JSON.parse(cachedTargets));
+        if (cachedTeam) setTeamMembers(JSON.parse(cachedTeam));
+      } catch (e) { console.error("Cache load error:", e); }
+    };
+
     try {
       const token = localStorage.getItem("token");
       const cfg = { headers: { Authorization: `Bearer ${token}` } };
@@ -206,9 +217,17 @@ const Task = () => {
           axios.get(`${API}/api/task/targets`, cfg),
           teamProm,
         ]);
-        setTasks(tasksRes.data || []);
-        setTaskTargets(targetsRes.data || []);
-        setTeamMembers(teamRes.data || []);
+        const tData = tasksRes.data || [];
+        const tgData = targetsRes.data || [];
+        const tmData = teamRes.data || [];
+
+        setTasks(tData);
+        setTaskTargets(tgData);
+        setTeamMembers(tmData);
+
+        localStorage.setItem("cached_tasks", JSON.stringify(tData));
+        localStorage.setItem("cached_targets", JSON.stringify(tgData));
+        localStorage.setItem("cached_team_members", JSON.stringify(tmData));
       } else {
         const userName = user?.name || `${user?.first_name || ""} ${user?.last_name || ""}`.trim() || user?.email?.split("@")[0] || "";
         const [tasksRes, targetsRes, teamRes] = await Promise.all([
@@ -216,15 +235,38 @@ const Task = () => {
           axios.get(`${API}/api/task/targets/my?user_name=${encodeURIComponent(userName)}`, cfg).catch(() => ({ data: { hasTarget: false } })),
           teamProm,
         ]);
-        setTasks(tasksRes.data || []);
-        setTaskTargets(targetsRes.data?.hasTarget ? [targetsRes.data] : []);
-        setTeamMembers(teamRes.data || []);
+        const tData = tasksRes.data || [];
+        const tgData = targetsRes.data?.hasTarget ? [targetsRes.data] : [];
+        const tmData = teamRes.data || [];
+
+        setTasks(tData);
+        setTaskTargets(tgData);
+        setTeamMembers(tmData);
+
+        localStorage.setItem("cached_tasks", JSON.stringify(tData));
+        localStorage.setItem("cached_targets", JSON.stringify(tgData));
+        localStorage.setItem("cached_team_members", JSON.stringify(tmData));
       }
       setLastUpdate(new Date());
-    } catch (err) { console.error("Fetch error:", err); }
+    } catch (err) {
+      console.error("Fetch error, loading cache:", err);
+      loadCached();
+    }
   };
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    // Instant offline/cached startup before network call resolves
+    try {
+      const cachedTasks = localStorage.getItem("cached_tasks");
+      const cachedTargets = localStorage.getItem("cached_targets");
+      const cachedTeam = localStorage.getItem("cached_team_members");
+      if (cachedTasks) setTasks(JSON.parse(cachedTasks));
+      if (cachedTargets) setTaskTargets(JSON.parse(cachedTargets));
+      if (cachedTeam) setTeamMembers(JSON.parse(cachedTeam));
+    } catch (e) { console.error("Cache load mount error:", e); }
+
+    fetchAll();
+  }, []);
 
   // Auto-refresh every 15 seconds
   useEffect(() => {
@@ -464,17 +506,17 @@ const Task = () => {
         <span className="text-sm" style={{ color: N.stone }}>Dashboard › Task & Target</span>
       </div>
 
-      {/* Top-level tabs */}
-      <div className="flex gap-2 mb-6 flex-wrap">
-        {[["tasks", "Active Tasks"], ["history", "Task History"], ["targets", "Targets"], ["targetHistory", "Target History"], ...(isAdmin ? [["achievements", "Employee Achievements"]] : [])].map(([key, label]) => (
-          <PillTab key={key} active={activeTab === key} onClick={() => setActiveTab(key)}>{label}</PillTab>
-        ))}
-        {lastUpdate && (
-          <span className="ml-auto text-xs flex items-center gap-1 self-center" style={{ color: N.stone }}>
-            <RefreshCw size={11} /> {lastUpdate.toLocaleTimeString()}
-          </span>
-        )}
-      </div>
+{/* Top-level tabs */}
+<div className="flex gap-2 mb-6 flex-wrap">
+  {[["tasks", "Active Tasks"], ["history", "Task History"], ["targets", "Targets"], ["targetHistory", "Target History"]].map(([key, label]) => (
+    <PillTab key={key} active={activeTab === key} onClick={() => setActiveTab(key)}>{label}</PillTab>
+  ))}
+  {lastUpdate && (
+    <span className="ml-auto text-xs flex items-center gap-1 self-center" style={{ color: N.stone }}>
+      <RefreshCw size={11} /> {lastUpdate.toLocaleTimeString()}
+    </span>
+  )}
+</div>
 
       {/* ── ACTIVE TASKS ─────────────────────────────────────────────────── */}
       {activeTab === "tasks" && (

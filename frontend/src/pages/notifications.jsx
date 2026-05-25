@@ -167,7 +167,6 @@ const Notifications = () => {
     : notifications;
 
   const filteredNotifs = allNotifs
-    .filter(n => n.type === "missed_reminder_alert" || n.type === "target_completed")
     .filter(n => {
       if (filter === "missed") return n.type === "missed_reminder_alert";
       if (filter === "target") return n.type === "target_completed";
