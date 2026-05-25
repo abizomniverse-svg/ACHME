@@ -289,6 +289,8 @@ const Task = () => {
               ytd_amount: data.yearly_achieved,
               current_percentage: data.monthly_percentage,
               yearly_percentage: data.yearly_percentage,
+              carry_forward: data.carry_forward !== undefined ? data.carry_forward : target.carry_forward,
+              effective_target: data.effective_target !== undefined ? data.effective_target : target.effective_target,
               updated_at: data.timestamp
             }
             : target

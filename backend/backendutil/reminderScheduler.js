@@ -116,8 +116,9 @@ function runCheckMissed() {
                   const notificationIO = getNotificationIO();
                   if (notificationIO) {
                     const time = new Date().toLocaleString();
-                    const message = `⚠️ You missed ${lead.total_missed} reminders for client "${lead.customer_name}"`;
-                    
+                    const employeeMessage = `⚠️ You missed ${lead.total_missed} reminders / calls continuously for client "${lead.customer_name}"`;
+                    const adminMessage = `⚠️ ${lead.staff_name} missed ${lead.total_missed} reminders / calls continuously for client "${lead.customer_name}"`;
+
                     // Send to employee
                     notificationIO.emitNotification("missed_reminder_alert", {
                       leadId: lead.lead_id,
@@ -128,9 +129,10 @@ function runCheckMissed() {
                       mobileNumber: lead.mobile_number,
                       count: lead.total_missed,
                       missedAt: time,
-                      title: "Missed Reminder Alert",
-                      message: message,
-                      type: "missed_reminder"
+                      title: "Missed Call / Reminder Alert",
+                      message: employeeMessage,
+                      type: "missed_reminder",
+                      priority: "high"
                     }, lead.employee_id, false);
 
                     // Send to admin
@@ -144,8 +146,9 @@ function runCheckMissed() {
                       count: lead.total_missed,
                       missedAt: time,
                       title: "Employee Missed Reminders",
-                      message: `${lead.staff_name} missed ${lead.total_missed} reminders for client "${lead.customer_name}"`,
-                      type: "missed_reminder"
+                      message: adminMessage,
+                      type: "missed_reminder",
+                      priority: "high"
                     }, null, true);
                   }
                 }
@@ -153,9 +156,9 @@ function runCheckMissed() {
                 // Create new escalation
                 db.query(
                   `INSERT INTO lead_escalations 
-                   (lead_id, lead_type, customer_name, mobile_number, staff_name, last_followup_date, missed_count)
-                   VALUES (?,?,?,?,?,?,?)`,
-                  [lead.lead_id, lead.lead_type, lead.customer_name, lead.mobile_number,
+                   (lead_id, lead_type, employee_id, customer_name, mobile_number, staff_name, last_followup_date, missed_count, missed_threshold_reached)
+                   VALUES (?,?,?,?,?,?,?,?,1)`,
+                  [lead.lead_id, lead.lead_type, lead.employee_id || null, lead.customer_name, lead.mobile_number,
                    lead.staff_name, toDateOnly(lead.last_reminder_date), lead.total_missed],
                   (e2) => {
                     if (!e2) {
@@ -165,8 +168,9 @@ function runCheckMissed() {
                       const notificationIO = getNotificationIO();
                       if (notificationIO) {
                         const time = new Date().toLocaleString();
-                        const message = `⚠️ You missed ${lead.total_missed} reminders for client "${lead.customer_name}"`;
-                        
+                        const employeeMessage = `⚠️ You missed ${lead.total_missed} reminders / calls continuously for client "${lead.customer_name}"`;
+                        const adminMessage = `⚠️ New escalation: ${lead.staff_name} missed ${lead.total_missed} reminders / calls continuously for client "${lead.customer_name}"`;
+
                         // Send to employee
                         notificationIO.emitNotification("missed_reminder_alert", {
                           leadId: lead.lead_id,
@@ -177,9 +181,10 @@ function runCheckMissed() {
                           mobileNumber: lead.mobile_number,
                           count: lead.total_missed,
                           missedAt: time,
-                          title: "Missed Reminder Alert",
-                          message: message,
-                          type: "missed_reminder"
+                          title: "Missed Call / Reminder Alert",
+                          message: employeeMessage,
+                          type: "missed_reminder",
+                          priority: "high"
                         }, lead.employee_id, false);
 
                         // Send to admin
@@ -193,8 +198,9 @@ function runCheckMissed() {
                           count: lead.total_missed,
                           missedAt: time,
                           title: "Employee Missed Reminders",
-                          message: `${lead.staff_name} missed ${lead.total_missed} reminders for client "${lead.customer_name}"`,
-                          type: "missed_reminder"
+                          message: adminMessage,
+                          type: "missed_reminder",
+                          priority: "high"
                         }, null, true);
                       }
                     }

@@ -133,25 +133,44 @@ router.post("/check-missed", verifyToken, (req, res) => {
                 if (existing.length > 0) {
                   db.query("UPDATE lead_escalations SET missed_count=?, missed_threshold_reached=1 WHERE id=?", [lead.missed_count, existing[0].id]);
                   if ([3, 5, 7, 9, 10].includes(Number(lead.missed_count))) {
-                    db.query("INSERT INTO admin_notifications (type, user_id, message, related_id, related_type, priority) VALUES (?, ?, ?, ?, ?, ?)",
-                      ["missed_reminder", lead.employee_id || null, `Missed reminder #${lead.missed_count} for lead "${lead.customer_name}" (${lead.lead_type})`, lead.lead_id, "lead", "high"],
-                      (err, result) => {
-                        if (!err) {
-                          const notificationIO = getNotificationIO();
-                          if (notificationIO) {
-                            notificationIO.sendToAdmin("new_notification", {
-                              id: result.insertId,
-                              type: "missed_reminder",
-                              message: `Missed reminder #${lead.missed_count} for lead "${lead.customer_name}"`,
-                              employee_name: lead.staff_name,
-                              priority: "high",
-                              is_read: 0,
-                              created_at: new Date().toISOString()
-                            });
-                          }
-                        }
-                      }
-                    );
+                    const notificationIO = getNotificationIO();
+                    if (notificationIO) {
+                      const time = new Date().toLocaleString();
+                      const employeeMessage = `⚠️ You missed ${lead.missed_count} reminders / calls continuously for client "${lead.customer_name}"`;
+                      const adminMessage = `⚠️ ${lead.staff_name} missed ${lead.missed_count} reminders / calls continuously for client "${lead.customer_name}"`;
+
+                      // Send to employee
+                      notificationIO.emitNotification("missed_reminder_alert", {
+                        leadId: lead.lead_id,
+                        leadType: lead.lead_type,
+                        userId: lead.employee_id,
+                        userName: lead.staff_name,
+                        customerName: lead.customer_name,
+                        mobileNumber: lead.mobile_number,
+                        count: lead.missed_count,
+                        missedAt: time,
+                        title: "Missed Call / Reminder Alert",
+                        message: employeeMessage,
+                        type: "missed_reminder",
+                        priority: "high"
+                      }, lead.employee_id, false);
+
+                      // Send to admin
+                      notificationIO.emitNotification("missed_reminder_alert", {
+                        leadId: lead.lead_id,
+                        leadType: lead.lead_type,
+                        userId: lead.employee_id,
+                        userName: lead.staff_name,
+                        customerName: lead.customer_name,
+                        mobileNumber: lead.mobile_number,
+                        count: lead.missed_count,
+                        missedAt: time,
+                        title: "Employee Missed Reminders",
+                        message: adminMessage,
+                        type: "missed_reminder",
+                        priority: "high"
+                      }, null, true);
+                    }
                   }
                 }
                 if (--pending === 0) res.json({ markedMissed, escalated });
@@ -163,25 +182,44 @@ router.post("/check-missed", verifyToken, (req, res) => {
                 (e2) => {
                   if (!e2) {
                     escalated++;
-                    db.query("INSERT INTO admin_notifications (type, user_id, message, related_id, related_type, priority) VALUES (?, ?, ?, ?, ?, ?)",
-                      ["missed_reminder", lead.employee_id || null, `New escalation: missed reminder for lead "${lead.customer_name}" (${lead.lead_type})`, lead.lead_id, "lead", "high"],
-                      (err, result) => {
-                        if (!err) {
-                          const notificationIO = getNotificationIO();
-                          if (notificationIO) {
-                            notificationIO.sendToAdmin("new_notification", {
-                              id: result.insertId,
-                              type: "missed_reminder",
-                              message: `New escalation: missed reminder for lead "${lead.customer_name}"`,
-                              employee_name: lead.staff_name,
-                              priority: "high",
-                              is_read: 0,
-                              created_at: new Date().toISOString()
-                            });
-                          }
-                        }
-                      }
-                    );
+                    const notificationIO = getNotificationIO();
+                    if (notificationIO) {
+                      const time = new Date().toLocaleString();
+                      const employeeMessage = `⚠️ You missed ${lead.missed_count} reminders / calls continuously for client "${lead.customer_name}"`;
+                      const adminMessage = `⚠️ New escalation: ${lead.staff_name} missed ${lead.missed_count} reminders / calls continuously for client "${lead.customer_name}"`;
+
+                      // Send to employee
+                      notificationIO.emitNotification("missed_reminder_alert", {
+                        leadId: lead.lead_id,
+                        leadType: lead.lead_type,
+                        userId: lead.employee_id,
+                        userName: lead.staff_name,
+                        customerName: lead.customer_name,
+                        mobileNumber: lead.mobile_number,
+                        count: lead.missed_count,
+                        missedAt: time,
+                        title: "Missed Call / Reminder Alert",
+                        message: employeeMessage,
+                        type: "missed_reminder",
+                        priority: "high"
+                      }, lead.employee_id, false);
+
+                      // Send to admin
+                      notificationIO.emitNotification("missed_reminder_alert", {
+                        leadId: lead.lead_id,
+                        leadType: lead.lead_type,
+                        userId: lead.employee_id,
+                        userName: lead.staff_name,
+                        customerName: lead.customer_name,
+                        mobileNumber: lead.mobile_number,
+                        count: lead.missed_count,
+                        missedAt: time,
+                        title: "Employee Missed Reminders",
+                        message: adminMessage,
+                        type: "missed_reminder",
+                        priority: "high"
+                      }, null, true);
+                    }
                   }
                   if (--pending === 0) res.json({ markedMissed, escalated });
                 }

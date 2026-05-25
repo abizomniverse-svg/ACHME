@@ -4,6 +4,24 @@ const db = require("../config/database");
 const { verifyToken, isAdmin } = require("../middleware/authMiddleware");
 const { getNotificationIO } = require("../sockets/notifications");
 
+// Timezone-safe local date formatting helpers
+const getLocalYearMonth = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+const getPrevYearMonth = (yearMonthStr) => {
+  const [year, month] = yearMonthStr.split("-").map(Number);
+  let prevYear = year;
+  let prevMonth = month - 1;
+  if (prevMonth === 0) {
+    prevMonth = 12;
+    prevYear = year - 1;
+  }
+  return `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
+};
+
 const findUserForTask = (nameOrEmailOrTmId, callback) => {
   if (!nameOrEmailOrTmId) return callback(null, null);
   const numId = parseInt(nameOrEmailOrTmId);
@@ -391,12 +409,10 @@ router.get("/overdue", verifyToken, isAdmin, (req, res) => {
 });
 
 router.get("/targets", verifyToken, isAdmin, (req, res) => {
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = getLocalYearMonth();
   const currentYear = currentMonth.slice(0, 4);
   const currentYearPrefix = currentYear + "-%";
-  const now = new Date();
-  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const prevMonthStr = prevMonth.toISOString().slice(0, 7);
+  const prevMonthStr = getPrevYearMonth(currentMonth);
   const prevYear = String(Number(currentYear) - 1);
   const prevYearPrefix = prevYear + "-%";
   const isJanuary = currentMonth.endsWith("-01");
@@ -424,9 +440,9 @@ router.get("/targets", verifyToken, isAdmin, (req, res) => {
         return new Promise((resolve) => {
           let monthlyCarry = 0;
 
-          // Month-to-month carry-forward
-          db.query("SELECT achieved_amount FROM task_achievements WHERE user_name = ? AND month_year = ?",
-            [row.user_name, prevMonthStr],
+          // Month-to-month carry-forward - query by target_id
+          db.query("SELECT achieved_amount FROM task_achievements WHERE target_id = ? AND month_year = ?",
+            [row.id, prevMonthStr],
             (err2, prevRows) => {
               if (prevRows.length > 0 && prevRows[0].achieved_amount < row.monthly_target) {
                 monthlyCarry = row.monthly_target - prevRows[0].achieved_amount;
@@ -450,8 +466,8 @@ router.get("/targets", verifyToken, isAdmin, (req, res) => {
               };
 
               if (isJanuary && row.yearly_target > 0) {
-                db.query("SELECT SUM(achieved_amount) as prev_year_total FROM task_achievements WHERE user_name = ? AND month_year LIKE ?",
-                  [row.user_name, prevYearPrefix],
+                db.query("SELECT SUM(achieved_amount) as prev_year_total FROM task_achievements WHERE target_id = ? AND month_year LIKE ?",
+                  [row.id, prevYearPrefix],
                   (err3, yrRows) => {
                     const prevYearTotal = yrRows && yrRows.length ? Number(yrRows[0].prev_year_total) || 0 : 0;
                     if (prevYearTotal < row.yearly_target) {
@@ -469,19 +485,19 @@ router.get("/targets", verifyToken, isAdmin, (req, res) => {
       });
 
       Promise.all(carryForwardChecks).then(() => {
-        const userNames = rows.map(r => r.user_name).filter(Boolean);
-        if (userNames.length === 0) return res.json(rows);
+        const targetIds = rows.map(r => r.id).filter(Boolean);
+        if (targetIds.length === 0) return res.json(rows);
 
-        const placeholders = userNames.map(() => '?').join(',');
-        db.query(`SELECT a.*, t.monthly_target as target_monthly FROM task_achievements a JOIN task_targets t ON a.target_id = t.id WHERE a.user_name IN (${placeholders}) ORDER BY a.month_year DESC`,
-          userNames,
+        const placeholders = targetIds.map(() => '?').join(',');
+        db.query(`SELECT a.*, t.monthly_target as target_monthly, t.carry_forward, t.effective_target FROM task_achievements a JOIN task_targets t ON a.target_id = t.id WHERE a.target_id IN (${placeholders}) ORDER BY a.month_year DESC`,
+          targetIds,
           (err2, historyRows) => {
             if (err2) return res.json(rows);
 
             const historyMap = {};
             historyRows.forEach(h => {
-              if (!historyMap[h.user_name]) historyMap[h.user_name] = [];
-              historyMap[h.user_name].push({
+              if (!historyMap[h.target_id]) historyMap[h.target_id] = [];
+              historyMap[h.target_id].push({
                 month_year: h.month_year,
                 monthly_target: h.target_monthly,
                 achieved_amount: h.achieved_amount,
@@ -495,7 +511,7 @@ router.get("/targets", verifyToken, isAdmin, (req, res) => {
             const finalRows = rows.map(row => ({
               ...row,
               current_month: currentMonth,
-              history: historyMap[row.user_name] || []
+              history: historyMap[row.id] || []
             }));
 
             res.json(finalRows);
@@ -508,12 +524,10 @@ router.get("/targets/my", verifyToken, (req, res) => {
   const user_id = req.user.id;
   const user_name = req.user.name || req.user.first_name;
   if (!user_id) return res.status(400).json({ error: "User ID required" });
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = getLocalYearMonth();
   const currentYear = currentMonth.slice(0, 4);
   const currentYearPrefix = currentYear + "-%";
-  const now = new Date();
-  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const prevMonthStr = prevMonth.toISOString().slice(0, 7);
+  const prevMonthStr = getPrevYearMonth(currentMonth);
   const prevYear = String(Number(currentYear) - 1);
   const prevYearPrefix = prevYear + "-%";
   const isJanuary = currentMonth.endsWith("-01");
@@ -527,11 +541,10 @@ router.get("/targets/my", verifyToken, (req, res) => {
       const targetId = targetRows[0].id;
       const monthlyTarget = targetRows[0].monthly_target;
       const yearlyTarget = targetRows[0].yearly_target;
-      const targetUserName = targetRows[0].user_name;
 
-      // Month-to-month carry-forward
-      db.query("SELECT achieved_amount FROM task_achievements WHERE user_name = ? AND month_year = ?",
-        [targetUserName, prevMonthStr],
+      // Month-to-month carry-forward - query by target_id
+      db.query("SELECT achieved_amount FROM task_achievements WHERE target_id = ? AND month_year = ?",
+        [targetId, prevMonthStr],
         (prevErr, prevRows) => {
           let monthlyCarry = 0;
           if (prevRows.length > 0 && prevRows[0].achieved_amount < monthlyTarget) {
@@ -542,17 +555,17 @@ router.get("/targets/my", verifyToken, (req, res) => {
           const finalize = (totalCarry) => {
             const effectiveTarget = monthlyTarget + totalCarry;
 
-            // Get current month achievement
-            db.query("SELECT achieved_amount, achieved_count FROM task_achievements WHERE user_name = ? AND month_year = ?",
-              [targetUserName, currentMonth],
+            // Get current month achievement - query by target_id
+            db.query("SELECT achieved_amount, achieved_count FROM task_achievements WHERE target_id = ? AND month_year = ?",
+              [targetId, currentMonth],
               (err2, currentRows) => {
                 const achievedAmount = currentRows.length > 0 ? currentRows[0].achieved_amount : 0;
                 const achievedCount = currentRows.length > 0 ? currentRows[0].achieved_count : 0;
                 const monthlyBalance = Math.max(0, effectiveTarget - achievedAmount);
 
-                // Get YTD (year-to-date) achievement
-                db.query("SELECT SUM(achieved_amount) as ytd_amount, SUM(achieved_count) as ytd_count FROM task_achievements WHERE user_name = ? AND month_year LIKE ?",
-                  [targetUserName, currentYearPrefix],
+                // Get YTD (year-to-date) achievement - query by target_id
+                db.query("SELECT SUM(achieved_amount) as ytd_amount, SUM(achieved_count) as ytd_count FROM task_achievements WHERE target_id = ? AND month_year LIKE ?",
+                  [targetId, currentYearPrefix],
                   (err4, ytdRows) => {
                     const ytdAmount = ytdRows && ytdRows.length ? Number(ytdRows[0].ytd_amount) || 0 : 0;
                     const ytdCount = ytdRows && ytdRows.length ? Number(ytdRows[0].ytd_count) || 0 : 0;
@@ -562,8 +575,8 @@ router.get("/targets/my", verifyToken, (req, res) => {
                     db.query("UPDATE task_targets SET carry_forward = ?, effective_target = ? WHERE id = ?",
                       [totalCarry, effectiveTarget, targetId],
                       () => {
-                        db.query(`SELECT a.*, t.monthly_target as target_monthly, t.carry_forward, t.effective_target FROM task_achievements a JOIN task_targets t ON a.target_id = t.id WHERE a.user_name = ? ORDER BY a.month_year DESC LIMIT 12`,
-                          [targetUserName],
+                        db.query(`SELECT a.*, t.monthly_target as target_monthly, t.carry_forward, t.effective_target FROM task_achievements a JOIN task_targets t ON a.target_id = t.id WHERE a.target_id = ? ORDER BY a.month_year DESC LIMIT 12`,
+                          [targetId],
                           (err3, historyRows) => {
                             const history = historyRows ? historyRows.map(h => ({
                               month_year: h.month_year,
@@ -575,9 +588,9 @@ router.get("/targets/my", verifyToken, (req, res) => {
                               balance_target: Math.max(0, (h.effective_target || h.target_monthly) - h.achieved_amount)
                             })) : [];
 
-                            // Fetch individual submissions with descriptions
-                            db.query("SELECT id, amount, description, month_year, created_at FROM task_updates WHERE user_name = ? ORDER BY created_at DESC LIMIT 50",
-                              [targetUserName],
+                            // Fetch individual submissions with descriptions - query by target_id
+                            db.query("SELECT id, amount, description, month_year, created_at FROM task_updates WHERE target_id = ? ORDER BY created_at DESC LIMIT 50",
+                              [targetId],
                               (err5, submissionRows) => {
                                 const submissions = submissionRows ? submissionRows.map(s => ({
                                   id: s.id,
@@ -617,8 +630,8 @@ router.get("/targets/my", verifyToken, (req, res) => {
           };
 
           if (isJanuary && yearlyTarget > 0) {
-            db.query("SELECT SUM(achieved_amount) as prev_year_total FROM task_achievements WHERE user_name = ? AND month_year LIKE ?",
-              [targetUserName, prevYearPrefix],
+            db.query("SELECT SUM(achieved_amount) as prev_year_total FROM task_achievements WHERE target_id = ? AND month_year LIKE ?",
+              [targetId, prevYearPrefix],
               (err3, yrRows) => {
                 let yearEndCarry = 0;
                 const prevYearTotal = yrRows && yrRows.length ? Number(yrRows[0].prev_year_total) || 0 : 0;
@@ -640,12 +653,10 @@ router.get("/targets/my", verifyToken, (req, res) => {
 router.get("/targets/user", verifyToken, (req, res) => {
   const { user_name } = req.query;
   if (!user_name) return res.status(400).json({ error: "user_name required" });
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = getLocalYearMonth();
   const currentYear = currentMonth.slice(0, 4);
   const currentYearPrefix = currentYear + "-%";
-  const now = new Date();
-  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const prevMonthStr = prevMonth.toISOString().slice(0, 7);
+  const prevMonthStr = getPrevYearMonth(currentMonth);
   const prevYear = String(Number(currentYear) - 1);
   const prevYearPrefix = prevYear + "-%";
   const isJanuary = currentMonth.endsWith("-01");
@@ -659,8 +670,9 @@ router.get("/targets/user", verifyToken, (req, res) => {
       const yearlyTarget = targetRows[0].yearly_target;
       const targetId = targetRows[0].id;
 
-      db.query("SELECT achieved_amount FROM task_achievements WHERE user_name = ? AND month_year = ?",
-        [user_name, prevMonthStr],
+      // Month-to-month carry-forward - query by target_id
+      db.query("SELECT achieved_amount FROM task_achievements WHERE target_id = ? AND month_year = ?",
+        [targetId, prevMonthStr],
         (err2, prevRows) => {
           let monthlyCarry = 0;
           if (prevRows.length > 0 && prevRows[0].achieved_amount < monthlyTarget) {
@@ -672,15 +684,17 @@ router.get("/targets/user", verifyToken, (req, res) => {
             db.query("UPDATE task_targets SET carry_forward = ?, effective_target = ? WHERE id = ?",
               [totalCarry, effectiveTarget, targetId],
               () => {
-                db.query("SELECT achieved_amount, achieved_count FROM task_achievements WHERE user_name = ? AND month_year = ?",
-                  [user_name, currentMonth],
+                // Get current month achievement - query by target_id
+                db.query("SELECT achieved_amount, achieved_count FROM task_achievements WHERE target_id = ? AND month_year = ?",
+                  [targetId, currentMonth],
                   (err3, currentRows) => {
                     const achievedAmount = currentRows.length > 0 ? currentRows[0].achieved_amount : 0;
                     const achievedCount = currentRows.length > 0 ? currentRows[0].achieved_count : 0;
                     const monthlyBalance = Math.max(0, effectiveTarget - achievedAmount);
 
-                    db.query("SELECT SUM(achieved_amount) as ytd_amount, SUM(achieved_count) as ytd_count FROM task_achievements WHERE user_name = ? AND month_year LIKE ?",
-                      [user_name, currentYearPrefix],
+                    // Get YTD (year-to-date) achievement - query by target_id
+                    db.query("SELECT SUM(achieved_amount) as ytd_amount, SUM(achieved_count) as ytd_count FROM task_achievements WHERE target_id = ? AND month_year LIKE ?",
+                      [targetId, currentYearPrefix],
                       (err4, ytdRows) => {
                         const ytdAmount = ytdRows && ytdRows.length ? Number(ytdRows[0].ytd_amount) || 0 : 0;
                         const ytdCount = ytdRows && ytdRows.length ? Number(ytdRows[0].ytd_count) || 0 : 0;
@@ -709,8 +723,8 @@ router.get("/targets/user", verifyToken, (req, res) => {
           };
 
           if (isJanuary && yearlyTarget > 0) {
-            db.query("SELECT SUM(achieved_amount) as prev_year_total FROM task_achievements WHERE user_name = ? AND month_year LIKE ?",
-              [user_name, prevYearPrefix],
+            db.query("SELECT SUM(achieved_amount) as prev_year_total FROM task_achievements WHERE target_id = ? AND month_year LIKE ?",
+              [targetId, prevYearPrefix],
               (err3, yrRows) => {
                 let yearEndCarry = 0;
                 const prevYearTotal = yrRows && yrRows.length ? Number(yrRows[0].prev_year_total) || 0 : 0;
@@ -831,17 +845,18 @@ router.delete("/targets/:id", verifyToken, isAdmin, (req, res) => {
 });
 
 router.post("/targets/update", verifyToken, (req, res) => {
-  const { user_id, user_name, amount, description } = req.body;
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const user_id = req.user.id;
+  const user_name = req.user.name || req.user.first_name || req.body.user_name;
+  const { amount, description } = req.body;
+  const currentMonth = getLocalYearMonth();
   if (!user_name || !amount) return res.status(400).json({ error: "user_name and amount (in INR) required" });
-  const currentYear = new Date().getFullYear();
-  db.query("SELECT id, yearly_target, monthly_target FROM task_targets WHERE user_name = ?",
-    [user_name],
+  db.query("SELECT id, yearly_target, monthly_target, user_name FROM task_targets WHERE (user_id = ? OR user_name = ?)",
+    [user_id, user_name],
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
       if (rows.length === 0) {
         db.query(`INSERT INTO task_targets (user_id, user_name, yearly_target, monthly_target, created_by_admin) VALUES (?, ?, ?, ?, ?)`,
-          [user_id || null, user_name, 0, 0, 0],
+          [user_id, user_name, 0, 0, 0],
           (insErr, insResult) => {
             if (insErr) return res.status(500).json({ error: insErr.message });
             const newTargetId = insResult.insertId;
@@ -851,7 +866,8 @@ router.post("/targets/update", verifyToken, (req, res) => {
       } else {
         const targetId = rows[0].id;
         const monthlyTarget = rows[0].monthly_target;
-        processAchievement(user_id, user_name, targetId, monthlyTarget, 0, currentMonth, amount, description, res);
+        const targetUserName = rows[0].user_name || user_name;
+        processAchievement(user_id, targetUserName, targetId, monthlyTarget, 0, currentMonth, amount, description, res);
       }
     }
   );
@@ -909,16 +925,15 @@ const processAchievement = (user_id, user_name, targetId, monthlyTarget, achieve
   const prevYear = String(Number(currentYear) - 1);
   const prevYearPrefix = prevYear + "-%";
   const isJanuary = currentMonth.endsWith("-01");
-  const prevMonth = new Date(); prevMonth.setMonth(prevMonth.getMonth() - 1);
-  const prevMonthStr = prevMonth.toISOString().slice(0, 7);
+  const prevMonthStr = getPrevYearMonth(currentMonth);
 
   db.query("SELECT yearly_target FROM task_targets WHERE id = ?", [targetId],
     (targetErr, targetRow) => {
       const yearlyTarget = targetRow && targetRow.length ? Number(targetRow[0].yearly_target) || 0 : 0;
 
-      // Month-to-month carry
-      db.query("SELECT achieved_amount FROM task_achievements WHERE user_name = ? AND month_year = ?",
-        [user_name, prevMonthStr],
+      // Month-to-month carry - Query by targetId for complete name robustness
+      db.query("SELECT achieved_amount FROM task_achievements WHERE target_id = ? AND month_year = ?",
+        [targetId, prevMonthStr],
         (err2, prevRows) => {
           let monthlyCarry = 0;
           if (prevRows.length > 0 && prevRows[0].achieved_amount < monthlyTarget) {
@@ -963,20 +978,20 @@ const processAchievement = (user_id, user_name, targetId, monthlyTarget, achieve
                         );
 
                         // ═══════════════════════════════════════════════════════════
-                        // STEP 5: Get current month achievement details
+                        // STEP 5: Get current month achievement details (Using target_id)
                         // ═══════════════════════════════════════════════════════════
-                        db.query("SELECT achieved_amount FROM task_achievements WHERE user_name = ? AND month_year = ?",
-                          [user_name, currentMonth],
+                        db.query("SELECT achieved_amount FROM task_achievements WHERE target_id = ? AND month_year = ?",
+                          [targetId, currentMonth],
                           (achErr, achRows) => {
                             const newAchieved = achRows && achRows.length ? achRows[0].achieved_amount : amount;
                             const monthlyPercentage = effectiveTarget > 0 ? Math.round((newAchieved / effectiveTarget) * 100) : 0;
                             const balanceTarget = Math.max(0, effectiveTarget - newAchieved);
 
                             // ═══════════════════════════════════════════════════════════
-                            // STEP 6: Get YTD (Year-To-Date) totals
+                            // STEP 6: Get YTD (Year-To-Date) totals (Using target_id)
                             // ═══════════════════════════════════════════════════════════
-                            db.query("SELECT SUM(achieved_amount) as ytd_amount, COUNT(*) as achievement_count FROM task_achievements WHERE user_name = ? AND month_year LIKE ?",
-                              [user_name, currentYearPrefix],
+                            db.query("SELECT SUM(achieved_amount) as ytd_amount, SUM(achieved_count) as achievement_count FROM task_achievements WHERE target_id = ? AND month_year LIKE ?",
+                              [targetId, currentYearPrefix],
                               (ytdErr, ytdRows) => {
                                 const ytdAmount = ytdRows && ytdRows.length ? Number(ytdRows[0].ytd_amount) || 0 : 0;
                                 const ytdCount = ytdRows && ytdRows.length ? Number(ytdRows[0].achievement_count) || 0 : 0;
@@ -1077,7 +1092,7 @@ const processAchievement = (user_id, user_name, targetId, monthlyTarget, achieve
                                     timestamp: achievementTimestamp
                                   });
 
-                                  // Emit to targets room to refresh admin targets view
+                                  // Emit to targets room to refresh admin targets view with enriched carry-forward
                                   notifIO.namespace.to("admin_notifications").emit("target_updated_data", {
                                     target_id: targetId,
                                     user_name: user_name,
@@ -1085,6 +1100,8 @@ const processAchievement = (user_id, user_name, targetId, monthlyTarget, achieve
                                     monthly_percentage: monthlyPercentage,
                                     yearly_achieved: ytdAmount,
                                     yearly_percentage: yearlyPct,
+                                    carry_forward: totalCarry,
+                                    effective_target: effectiveTarget,
                                     timestamp: achievementTimestamp
                                   });
                                 }
@@ -1124,8 +1141,8 @@ const processAchievement = (user_id, user_name, targetId, monthlyTarget, achieve
           };
 
           if (isJanuary && yearlyTarget > 0) {
-            db.query("SELECT SUM(achieved_amount) as prev_year_total FROM task_achievements WHERE user_name = ? AND month_year LIKE ?",
-              [user_name, prevYearPrefix],
+            db.query("SELECT SUM(achieved_amount) as prev_year_total FROM task_achievements WHERE target_id = ? AND month_year LIKE ?",
+              [targetId, prevYearPrefix],
               (err3, yrRows) => {
                 let yearEndCarry = 0;
                 const prevYearTotal = yrRows && yrRows.length ? Number(yrRows[0].prev_year_total) || 0 : 0;
@@ -1286,18 +1303,16 @@ router.put("/assignment/:id/status", verifyToken, (req, res) => {
 });
 
 function updateTaskAchievement(user_id, user_name, count, description) {
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const currentYear = new Date().getFullYear();
-  db.query("SELECT id, yearly_target, monthly_target FROM task_targets WHERE user_name = ?",
-    [user_name],
+  const currentMonth = getLocalYearMonth();
+  db.query("SELECT id, yearly_target, monthly_target FROM task_targets WHERE (user_id = ? OR user_name = ?)",
+    [user_id, user_name],
     (err, targetRows) => {
       if (err || targetRows.length === 0) return;
       const targetId = targetRows[0].id;
       const monthlyTarget = targetRows[0].monthly_target;
-      const prevMonth = new Date(); prevMonth.setMonth(prevMonth.getMonth() - 1);
-      const prevMonthStr = prevMonth.toISOString().slice(0, 7);
-      db.query("SELECT achieved_count FROM task_achievements WHERE user_name = ? AND month_year = ?",
-        [user_name, prevMonthStr],
+      const prevMonthStr = getPrevYearMonth(currentMonth);
+      db.query("SELECT achieved_count FROM task_achievements WHERE target_id = ? AND month_year = ?",
+        [targetId, prevMonthStr],
         (err2, prevRows) => {
           let carryForward = 0;
           if (prevRows.length > 0 && prevRows[0].achieved_count < monthlyTarget) {
