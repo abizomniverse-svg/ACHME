@@ -237,10 +237,12 @@ const Task = () => {
     const refresh = () => { fetchAll(); refreshNotifications(); };
     socket.on("task_updated", refresh); socket.on("new_task", refresh);
     socket.on("target_updated", refresh); socket.on("new_target", refresh);
+    socket.on("data_changed", refresh);
     
     return () => {
       socket.off("task_updated", refresh); socket.off("new_task", refresh);
       socket.off("target_updated", refresh); socket.off("new_target", refresh);
+      socket.off("data_changed", refresh);
     };
   }, []);
 

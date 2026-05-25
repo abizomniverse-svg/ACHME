@@ -28,7 +28,7 @@ envContent.split("\n").forEach((line) => {
 
 console.log("📁 Backend Env Config Check:");
 const expected = {
-  PORT: "82",
+  PORT: "5000",
   NODE_ENV: "production",
   DB_HOST: "127.0.0.1",
   DB_PORT: "3306",

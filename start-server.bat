@@ -14,4 +14,9 @@ if not exist "%ROOT%start_live_nginx_pm2.bat" (
 )
 
 call "%ROOT%start_live_nginx_pm2.bat"
+if errorlevel 1 (
+    echo.
+    echo [FAIL] Live Launcher finished with error code %ERRORLEVEL%
+    pause
+)
 exit /b %ERRORLEVEL%

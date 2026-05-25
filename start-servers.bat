@@ -5,7 +5,7 @@ title ACHME CRM - Development Servers
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
 set "BACKEND_PORT=5000"
-set "FRONTEND_PORT=3000"
+set "FRONTEND_PORT=82"
 
 echo.
 echo ====================================================================
@@ -14,25 +14,25 @@ echo ====================================================================
 echo.
 
 call :detect_ip
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 call :ensure_node
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 call :ensure_mysql
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 call :write_backend_env
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 call :write_frontend_env
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 call :install_backend
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 call :install_frontend
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 call :open_firewall_dev
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 call :stop_port %BACKEND_PORT%
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 call :stop_port %FRONTEND_PORT%
-if errorlevel 1 exit /b 1
+if errorlevel 1 goto fail
 
 echo.
 echo Starting backend on 0.0.0.0:%BACKEND_PORT%...

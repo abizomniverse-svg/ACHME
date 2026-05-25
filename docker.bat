@@ -53,7 +53,7 @@ if not exist .env (
         (
             echo NODE_ENV=production
             echo PORT=5000
-            echo ALLOWED_ORIGIN=http://localhost:3000
+            echo ALLOWED_ORIGIN=http://localhost:82
             echo DEFAULT_TEST_PASSWORD=Test@12345
             echo DB_HOST=mysql
             echo DB_PORT=3306
@@ -126,7 +126,7 @@ echo.
 echo ===================================================
 echo   [OK] ACHME CRM Services Successfully Launched!
 echo ===================================================
-echo   * Frontend Web Portal: http://localhost:3000
+echo   * Frontend Web Portal: http://localhost:82
 echo   * Backend REST API:    http://localhost:5000
 echo   * Backend Health:      http://localhost:5000/api/health
 echo   * MySQL Database:      localhost:3306 (External)

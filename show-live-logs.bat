@@ -5,6 +5,11 @@ title ACHME CRM - Open Live Logs
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
 set "NGINX_DIR=C:\nginx"
+if not exist "%NGINX_DIR%\nginx.exe" (
+  if exist "%ROOT%\nginx\nginx.exe" (
+    set "NGINX_DIR=%ROOT%\nginx"
+  )
+)
 set "LOG_DIR=%ROOT%\logs"
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"

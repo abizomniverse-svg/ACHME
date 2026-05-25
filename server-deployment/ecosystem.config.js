@@ -1,22 +1,30 @@
+const path = require("path");
+
+const projectRoot = process.env.ACHME_PROJECT_DIR || "/opt/achme";
+const logsDir = path.join(projectRoot, "logs");
+
 module.exports = {
   apps: [{
     name: 'achme-backend',
-    script: 'C:\\Deployment\\achme\\backend\\server.js', // Adjust if main file is index.js
-    instances: 'max', // Scale across all available CPU cores
-    exec_mode: 'cluster',
+    script: path.join(projectRoot, "backend", "server.js"),
+    cwd: path.join(projectRoot, "backend"),
+    instances: 1,
+    exec_mode: 'fork',
     autorestart: true,
-    watch: false, // Do not watch in production
-    max_memory_restart: '1G', // Restart if process consumes more than 1GB RAM
+    watch: false,
+    max_memory_restart: '1G',
+    max_restarts: 15,
+    min_uptime: '10s',
+    restart_delay: 3000,
     env: {
       NODE_ENV: 'production',
       PORT: 5000,
-      DB_HOST: '127.0.0.1',
-      DB_USER: 'root', // Change to your dedicated production user
-      DB_PASS: 'YOUR_SECURE_PASSWORD', // Change to your production password
-      DB_NAME: 'achme_crm'
+      DB_HOST: '127.0.0.1'
     },
-    error_file: 'C:\\Deployment\\achme\\logs\\backend-error.log',
-    out_file: 'C:\\Deployment\\achme\\logs\\backend-out.log',
+    error_file: path.join(logsDir, 'backend-error.log'),
+    out_file: path.join(logsDir, 'backend-out.log'),
+    merge_logs: true,
+    log_date_format: 'YYYY-MM-DD HH:mm:ss',
     time: true
   }]
 };

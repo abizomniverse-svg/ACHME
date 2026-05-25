@@ -251,7 +251,7 @@ router.post("/update", verifyToken, (req, res) => {
                     */
                   }
 
-                  db.query("INSERT INTO admin_notifications (type, user_id, message, related_id, related_type, priority) VALUES (?, ?, ?, ?, ?, ?)",
+              db.query("INSERT INTO admin_notifications (type, user_id, message, related_id, related_type, priority) VALUES (?, ?, ?, ?, ?, ?)",
                     ["target_achievement", user_id, `${user_name} achieved Rs.${Number(amount).toLocaleString()} - Total: Rs.${Number(totalAchieved).toLocaleString()} (${percentage}%)`, targetId, "target", percentage >= 100 ? "high" : "normal"],
                     (err, result) => {
                       if (!err) {
@@ -268,16 +268,30 @@ router.post("/update", verifyToken, (req, res) => {
                           });
                         }
                       }
+
+                      const notifIO = getNotificationIO();
+                      if (notifIO) {
+                        notifIO.emit("data_changed", {
+                          type: "target_achievement",
+                          user_name,
+                          amount: Number(amount),
+                          totalAchieved: Number(totalAchieved),
+                          percentage,
+                          targetId,
+                          month: currentMonth
+                        });
+                      }
+
+                      res.json({
+                        message: "Achievement updated",
+                        target_id: targetId,
+                        achieved_amount: Number(totalAchieved),
+                        percentage
+                      });
                     }
                   );
                 }
               );
-
-              const notifIO = getNotificationIO();
-              if (notifIO) {
-                notifIO.emit("data_changed", { type: "target_achievement", user_name, amount, totalAchieved, percentage });
-              }
-              res.json({ message: "Achievement updated", target_id: targetId, achieved_amount: totalAchieved, percentage });
             }
           );
         }

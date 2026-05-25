@@ -37,8 +37,6 @@ color 0A
 
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
-set "NGINX_DIR=C:\nginx"
-set "NGINX_HTML=%NGINX_DIR%\html\achme"
 set "BACKEND_PORT=5000"
 set "NGINX_PORT=82"
 set "DB_NAME=achme"
@@ -54,18 +52,27 @@ echo  ================================================================
 echo.
 
 :: ================================================================
-:: STEP 1: Auto-elevate to Administrator
+:: STEP 1: Check for Administrator privileges
 :: ================================================================
 :check_admin
 net session >nul 2>&1
 if not errorlevel 1 (
     echo  [OK] Running as Administrator.
-    goto detect_ip
+    set "NGINX_DIR=C:\nginx"
+    goto setup_nginx_html
 )
-echo  [!] Not Administrator — requesting elevation...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Start-Process -FilePath '%~f0' -Verb RunAs -WorkingDirectory '%ROOT%'"
-exit /b 0
+echo  [WARN] Running as Standard User (No Administrator privileges).
+echo         Dynamic fallback to local project folder for Nginx setup:
+echo         %ROOT%\nginx
+echo.
+echo         Firewall adjustments and local hosts file updates will be skipped.
+echo         Please make sure MySQL is already installed and running.
+echo  ----------------------------------------------------------------
+set "NGINX_DIR=%ROOT%\nginx"
+
+:setup_nginx_html
+set "NGINX_HTML=%NGINX_DIR%\html\achme"
+goto detect_ip
 
 :: ================================================================
 :: STEP 2: Detect LAN IP
@@ -145,6 +152,12 @@ for %%S in (MySQL80 MySQL MySQL57 mysql) do (
     )
 )
 echo  [!] Could not start MySQL automatically.
+net session >nul 2>&1
+if errorlevel 1 (
+    echo       Since you are running as a Standard User, please make sure your MySQL service
+    echo       is running manually (e.g. via Windows Services console: services.msc) or run this file as Admin.
+    echo.
+)
 echo.
 where winget >nul 2>&1
 if errorlevel 1 goto mysql_manual_install
@@ -212,7 +225,7 @@ if errorlevel 1 (
 
 echo  [!] Extracting Nginx to %NGINX_DIR%...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Expand-Archive -Path '%NGINX_ZIP%' -DestinationPath 'C:\' -Force; if (Test-Path 'C:\nginx-%NGINX_VERSION%') { Rename-Item 'C:\nginx-%NGINX_VERSION%' '%NGINX_DIR%' -Force }"
+  "if (Test-Path '%NGINX_DIR%') { Remove-Item '%NGINX_DIR%' -Recurse -Force }; New-Item -ItemType Directory -Path (Split-Path '%NGINX_DIR%') -Force | Out-Null; Expand-Archive -Path '%NGINX_ZIP%' -DestinationPath '%TEMP%\nginx_extract' -Force; Move-Item -Path '%TEMP%\nginx_extract\nginx-%NGINX_VERSION%' -Destination '%NGINX_DIR%' -Force; Remove-Item '%TEMP%\nginx_extract' -Recurse -Force"
 
 if not exist "%NGINX_DIR%\nginx.exe" (
     echo  [FAIL] Nginx extraction failed. Please extract manually to %NGINX_DIR%
@@ -585,26 +598,45 @@ echo  [OK] Nginx started on port %NGINX_PORT%.
 :: ================================================================
 echo.
 echo  [12/12] Opening Windows Firewall...
-netsh advfirewall firewall delete rule name="ACHME CRM Nginx %NGINX_PORT%" >nul 2>&1
-netsh advfirewall firewall add rule name="ACHME CRM Nginx %NGINX_PORT%" ^
-  dir=in action=allow protocol=TCP localport=%NGINX_PORT% >nul 2>&1
-echo  [OK] Firewall port %NGINX_PORT% open.
+net session >nul 2>&1
+if not errorlevel 1 (
+    netsh advfirewall firewall delete rule name="ACHME CRM Nginx %NGINX_PORT%" >nul 2>&1
+    netsh advfirewall firewall add rule name="ACHME CRM Nginx %NGINX_PORT%" ^
+      dir=in action=allow protocol=TCP localport=%NGINX_PORT% >nul 2>&1
+    echo  [OK] Firewall port %NGINX_PORT% open.
 
-echo  [OK] Port 80 redirect is optional and is not required for live access.
+    echo  [OK] Port 80 redirect is optional and is not required for live access.
 
-:: Keep backend behind Nginx. Do not add a hard block here because it can
-:: break the development launcher later on the same client machine.
-netsh advfirewall firewall delete rule name="ACHME Backend Block 5000" >nul 2>&1
-echo  [OK] Removed old hard block for backend port %BACKEND_PORT% if it existed.
+    :: Keep backend behind Nginx. Do not add a hard block here because it can
+    :: break the development launcher later on the same client machine.
+    netsh advfirewall firewall delete rule name="ACHME Backend Block 5000" >nul 2>&1
+    echo  [OK] Removed old hard block for backend port %BACKEND_PORT% if it existed.
+) else (
+    echo  [WARN] Not running as Administrator. Skipping Windows Firewall port mapping.
+    echo         If other devices on your LAN cannot connect, please manually allow port %NGINX_PORT%
+    echo         in Windows Defender Firewall.
+)
 
 :: ================================================================
 :: STEP 15: Update hosts file
 :: ================================================================
 echo.
 echo  [!] Mapping achme.com to !LAN_IP! in hosts file...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$hostsFile = \"$env:SystemRoot\System32\drivers\etc\hosts\"; $line = \"!LAN_IP!    achme.com    www.achme.com\"; try { $content = Get-Content $hostsFile; $filtered = $content | Where-Object { $_ -notmatch '\bachme\.com\b' }; $filtered + $line | Set-Content $hostsFile -Force; Write-Host 'Hosts file updated.' } catch { Write-Host 'Could not update hosts file: ' $_.Exception.Message }"
-echo  [OK] achme.com → !LAN_IP! on this machine.
+net session >nul 2>&1
+if not errorlevel 1 (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+      "$hostsFile = \"$env:SystemRoot\System32\drivers\etc\hosts\"; $line = \"!LAN_IP!    achme.com    www.achme.com\"; try { $content = Get-Content $hostsFile; $filtered = $content | Where-Object { $_ -notmatch '\bachme\.com\b' }; $filtered + $line | Set-Content $hostsFile -Force; Write-Host 'Hosts file updated.' } catch { throw $_ }"
+    if not errorlevel 1 (
+        echo  [OK] achme.com -> !LAN_IP! mapped in hosts file.
+    ) else (
+        echo  [WARN] Failed to update hosts file automatically.
+    )
+) else (
+    echo  [WARN] Not running as Administrator. Skipping hosts file domain mapping.
+    echo         To access using http://achme.com on this machine, please manually add
+    echo         the following line to C:\Windows\System32\drivers\etc\hosts (Run Notepad as Administrator):
+    echo         !LAN_IP!    achme.com    www.achme.com
+)
 
 echo.
 echo  [!] Installing startup restore for this Windows user...

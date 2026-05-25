@@ -57,7 +57,7 @@ services:
       dockerfile: Dockerfile
     container_name: achme-frontend
     ports:
-      - "3000:80"
+      - "82:80"
     environment:
       - REACT_APP_API_URL=${REACT_APP_API_URL:-}
     stdin_open: true
