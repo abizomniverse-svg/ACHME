@@ -8,7 +8,7 @@ export const BRANCH_DATA = {
     gstin: "29AAHFA7876M1ZM"
   },
   "Chennai": {
-    address: "5th Floor, 5CD PM Towers, Dreams Road, Thousand Lights, Chennai-600006",
+    address: "5th Floor, 5CD PM Towers, Greams Road, Thousand Lights, Chennai-600006",
     gstin: "33AAHFA7876M1ZX"
   }
 };

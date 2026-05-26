@@ -903,19 +903,36 @@ const ready = new Promise((resolve, reject) => {
 
           if (fs.existsSync(schemaPath)) {
             const schema = fs.readFileSync(schemaPath, "utf8");
-            db.query(schema, async (err) => {
-              if (err) {
-                console.error("Database initialization failed:", err.message);
-                return reject(err);
+            
+            // Temporarily disable foreign key checks to prevent referenced table/foreign key errors on clean installs
+            db.query("SET FOREIGN_KEY_CHECKS = 0;", (fkErr) => {
+              if (fkErr) {
+                console.error("Failed to disable foreign key checks:", fkErr.message);
+                return reject(fkErr);
               }
-              console.log("Database initialized successfully");
-              try {
-                await ensureTablesAndColumns();
-                await seedDefaultEmployees();
-                resolve(db);
-              } catch (migrationErr) {
-                reject(migrationErr);
-              }
+              
+              db.query(schema, (err) => {
+                // Always restore foreign key checks
+                db.query("SET FOREIGN_KEY_CHECKS = 1;", async (fkRestoreErr) => {
+                  if (err) {
+                    console.error("Database initialization failed:", err.message);
+                    return reject(err);
+                  }
+                  if (fkRestoreErr) {
+                    console.error("Failed to re-enable foreign key checks:", fkRestoreErr.message);
+                    return reject(fkRestoreErr);
+                  }
+                  
+                  console.log("Database initialized successfully");
+                  try {
+                    await ensureTablesAndColumns();
+                    await seedDefaultEmployees();
+                    resolve(db);
+                  } catch (migrationErr) {
+                    reject(migrationErr);
+                  }
+                });
+              });
             });
           } else {
             try {

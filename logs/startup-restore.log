@@ -1,0 +1,31 @@
+[Mon 05/25/2026 13:54:46.10] Startup restore running from D:\ACHME_COMUNICATION-main
+[PM2] Spawning PM2 daemon with pm2_home=C:\Users\thana\.pm2
+[PM2] PM2 Successfully daemonized
+[PM2] Resurrecting
+[PM2] Restoring processes located in C:\Users\thana\.pm2\dump.pm2
+[PM2] Process D:\ACHME_COMUNICATION-main\backend\server.js restored
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ achme-backend    │ default     │ 1.0.0   │ fork    │ 4764     │ 1s     │ 0    │ online    │ 0%       │ 80.3mb   │ thana    │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[Mon 05/25/2026 18:49:58.73] Startup restore running from D:\ACHME_COMUNICATION-main
+[PM2] Resurrecting
+[PM2] Restoring processes located in C:\Users\thana\.pm2\dump.pm2
+[PM2] Process D:\ACHME_COMUNICATION-main\backend\server.js restored
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ achme-backend    │ default     │ 1.0.0   │ fork    │ 16136    │ 1s     │ 0    │ online    │ 0%       │ 80.0mb   │ thana    │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[Tue 05/26/2026 10:03:14.77] Startup restore running from D:\ACHME_COMUNICATION-main
+[PM2] Spawning PM2 daemon with pm2_home=C:\Users\thana\.pm2
+[PM2] PM2 Successfully daemonized
+[PM2] Resurrecting
+[PM2] Restoring processes located in C:\Users\thana\.pm2\dump.pm2
+[PM2] Process D:\ACHME_COMUNICATION-main\backend\server.js restored
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ achme-backend    │ default     │ 1.0.0   │ fork    │ 15332    │ 0      │ 0    │ waiting … │ 0%       │ 0b       │ thana    │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘

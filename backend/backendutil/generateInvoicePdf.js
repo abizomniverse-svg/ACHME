@@ -407,10 +407,48 @@ async function generateInvoicePdf({ invoice, items, type, label, prefix }) {
 </body>
 </html>`;
 
-  const browser = await puppeteer.launch({
+  let browser;
+  const launchOptions = {
     headless: true,
-    args: ["--disable-gpu", "--disable-extensions", "--disable-software-rasterizer"],
-  });
+    args: ["--disable-gpu", "--disable-extensions", "--disable-software-rasterizer", "--no-sandbox"],
+  };
+
+  try {
+    browser = await puppeteer.launch(launchOptions);
+  } catch (launchErr) {
+    console.warn("⚠️ Standard Puppeteer launch failed. Attempting system browser fallback...", launchErr.message);
+    
+    const possiblePaths = [
+      // Chrome standard paths on Windows
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      path.join(process.env.LOCALAPPDATA || "", "Google\\Chrome\\Application\\chrome.exe"),
+      // Edge standard paths (Chromium-based, completely compatible!)
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+    ];
+
+    let launched = false;
+    for (const execPath of possiblePaths) {
+      if (fs.existsSync(execPath)) {
+        try {
+          browser = await puppeteer.launch({
+            ...launchOptions,
+            executablePath: execPath,
+          });
+          console.log(`🚀 System browser fallback successful using: ${execPath}`);
+          launched = true;
+          break;
+        } catch (err) {
+          console.warn(`Failed to launch system browser at ${execPath}:`, err.message);
+        }
+      }
+    }
+
+    if (!launched) {
+      throw new Error("Could not launch Puppeteer. Please install Google Chrome or Edge, or run 'npx puppeteer browsers install chrome' in your terminal. Details: " + launchErr.message);
+    }
+  }
 
   try {
     const page = await browser.newPage();
