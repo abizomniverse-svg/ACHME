@@ -116,3 +116,53 @@ registerRoute(
   ({ url }) => url.pathname.includes("socket.io"),
   new NetworkOnly()
 );
+
+// Push event listener for desktop alerts
+self.addEventListener("push", (event) => {
+  let data = { title: "ACHME CRM Notification", body: "You have a new update!" };
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch (e) {
+      data = { title: "ACHME CRM Notification", body: event.data.text() };
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: "/logo192.png",
+    badge: "/favicon.ico",
+    data: {
+      url: data.url || "/dashboard"
+    },
+    actions: [
+      { action: "open_url", title: "View Details" }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
+});
+
+// Click listener to navigate when a notification is clicked
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const urlToOpen = event.notification.data?.url || "/dashboard";
+
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
+      // If window client is open and has focus capabilities, focus it
+      for (var i = 0; i < windowClients.length; i++) {
+        var client = windowClients[i];
+        if (client.url.includes(urlToOpen) && "focus" in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen);
+      }
+    })
+  );
+});

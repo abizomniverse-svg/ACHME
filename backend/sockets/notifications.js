@@ -1,5 +1,6 @@
 const { Server } = require("socket.io");
 const db = require("../config/database");
+const { sendPushToUser, sendPushToAdmins } = require("../backendutil/pushSender");
 
 let notificationIO = null;
 let notificationHelpers = null;
@@ -65,13 +66,16 @@ function initNotificationsSocket(io, corsOrigin = "*") {
 
       db.query(
         "INSERT INTO notifications (task_id, user_id, type, title, description) VALUES (?, ?, ?, ?, ?)",
-        [relatedId, targetUserId, type, data.title || type, message],
+        [relatedId, targetUserId, type, data.title || "CRM Alert", message],
         (err, result) => {
           if (err) {
             console.error("[Notification Sockets] DB insert error:", err.message);
             if (shouldEmit) notificationIO.to(`notifications:${targetUserId}`).emit("new_notification", notification);
             return;
           }
+
+          // Trigger Desktop Web Push
+          sendPushToUser(targetUserId, data.title || "CRM Alert", message, "/dashboard/notifications");
 
           if (shouldEmit) {
             notificationIO.to(`notifications:${targetUserId}`).emit("new_notification", {
@@ -98,6 +102,9 @@ function initNotificationsSocket(io, corsOrigin = "*") {
           console.error("[Notification Sockets] Admin DB insert error:", err.message);
           return emitToEmployee();
         }
+
+        // Trigger Admin Desktop Web Push
+        sendPushToAdmins(data.title || "Admin CRM Alert", message, "/dashboard/notifications");
 
         notification.dbId = result.insertId;
         if (shouldEmit) {

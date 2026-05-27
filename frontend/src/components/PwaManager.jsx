@@ -2,6 +2,17 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { register } from "../serviceWorkerRegistration";
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export default function PwaManager() {
   const [updateReg, setUpdateReg] = useState(null);
   const [offline, setOffline] = useState(!navigator.onLine);
@@ -20,6 +31,79 @@ export default function PwaManager() {
       window.removeEventListener("offline", goOffline);
     };
   }, []);
+
+  // Push Notifications Subscription Logic
+  useEffect(() => {
+    const subscribeUser = async () => {
+      const token = localStorage.getItem("token");
+      if (!token) return; // Only subscribe if logged in
+
+      // Check if serviceWorker and PushManager are supported
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        console.warn("Push Notifications are not supported by this browser.");
+        return;
+      }
+
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        
+        // 1. Get VAPID public key from backend
+        const getApiBackend = () => {
+          if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
+          if (window.location.port && window.location.port !== "3000") {
+            return window.location.origin;
+          }
+          const protocol = window.location.protocol;
+          const hostname = window.location.hostname;
+          return `${protocol}//${hostname}:5000`;
+        };
+        const API_URL = getApiBackend();
+
+        const config = { headers: { Authorization: `Bearer ${token}` } };
+        const keyRes = await fetch(`${API_URL}/api/notifications/vapid-public-key`, config).then(r => r.json());
+        
+        if (!keyRes || !keyRes.publicKey) {
+          console.warn("Could not retrieve VAPID public key.");
+          return;
+        }
+
+        // 2. Request Notification Permission
+        if (Notification.permission === "default") {
+          await Notification.requestPermission();
+        }
+
+        if (Notification.permission !== "granted") {
+          console.log("Notification permission not granted.");
+          return;
+        }
+
+        // 3. Subscribe to Push Manager
+        const subscribeOptions = {
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(keyRes.publicKey)
+        };
+
+        const subscription = await registration.pushManager.subscribe(subscribeOptions);
+        console.log("Browser successfully subscribed to Web Push:", subscription);
+
+        // 4. Send subscription payload to SQL backend
+        await fetch(`${API_URL}/api/notifications/push-subscribe`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify(subscription)
+        });
+        
+        console.log("Push subscription saved to server successfully.");
+      } catch (err) {
+        console.error("Failed to subscribe user to push notifications:", err);
+      }
+    };
+
+    subscribeUser();
+  }, [updateReg]);
 
   const applyUpdate = useCallback(() => {
     if (!updateReg) return;

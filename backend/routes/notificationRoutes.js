@@ -315,4 +315,49 @@ router.get("/admin/employee/:userId", verifyToken, isAdmin, (req, res) => {
   });
 });
 
+const { getVapidPublicKey } = require("../backendutil/pushSender");
+
+// GET VAPID public key
+router.get("/vapid-public-key", verifyToken, (req, res) => {
+  res.json({ publicKey: getVapidPublicKey() });
+});
+
+// POST save push subscription
+router.post("/push-subscribe", verifyToken, (req, res) => {
+  const { endpoint, keys } = req.body;
+  if (!endpoint || !keys || !keys.p256dh || !keys.auth) {
+    return res.status(400).json({ error: "Invalid subscription object" });
+  }
+
+  const sql = `
+    INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+    VALUES (?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), p256dh = VALUES(p256dh), auth = VALUES(auth)
+  `;
+  
+  db.query(sql, [req.user.id, endpoint, keys.p256dh, keys.auth], (err) => {
+    if (err) {
+      console.error("[Web Push] Save subscription error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ success: true, message: "Subscription saved successfully" });
+  });
+});
+
+// POST unsubscribe / remove subscription
+router.post("/push-unsubscribe", verifyToken, (req, res) => {
+  const { endpoint } = req.body;
+  if (!endpoint) {
+    return res.status(400).json({ error: "Endpoint is required" });
+  }
+
+  db.query("DELETE FROM push_subscriptions WHERE endpoint = ?", [endpoint], (err) => {
+    if (err) {
+      console.error("[Web Push] Delete subscription error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ success: true, message: "Unsubscribed successfully" });
+  });
+});
+
 module.exports = router;

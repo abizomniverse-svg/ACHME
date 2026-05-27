@@ -10,24 +10,64 @@ const toTimeOnly = (val) => {
   if (s.length >= 8) return s.slice(-8);
   return s;
 };
-// DISABLED: Old notification system - replaced with 3-type redesign
-/*
-const notifyMissedLead = (lead, req) => {
-  const notificationIO = req?.app?.get("io");
-  if (!notificationIO || !notificationIO.emitNotification) return;
-  notificationIO.emitNotification("missed_calls", {
+const checkAlertAlreadySent = (leadId, leadType, count, callback) => {
+  db.query(
+    `SELECT id FROM admin_notifications 
+     WHERE type = 'missed_reminder_alert' 
+       AND related_id = ? 
+       AND related_type = ? 
+       AND message LIKE ?`,
+    [leadId, leadType, `%missed ${count} reminders%`],
+    (err, rows) => {
+      if (err) return callback(err, false);
+      callback(null, rows && rows.length > 0);
+    }
+  );
+};
+
+const sendMissedAlert = (lead, count) => {
+  const notificationIO = getNotificationIO();
+  if (!notificationIO) {
+    console.error("[leadManagementRoutes] NotificationIO not initialized, cannot emit alert");
+    return;
+  }
+
+  const time = new Date().toLocaleString();
+  const employeeMessage = `⚠️ You missed ${count} reminders / calls continuously for client "${lead.customer_name}"`;
+  const adminMessage = `⚠️ ${lead.staff_name || "Employee"} missed ${count} reminders / calls continuously for client "${lead.customer_name}"`;
+
+  // Send to employee
+  notificationIO.emitNotification("missed_reminder_alert", {
     leadId: lead.lead_id,
     leadType: lead.lead_type,
+    userId: lead.employee_id,
     userName: lead.staff_name,
     customerName: lead.customer_name,
     mobileNumber: lead.mobile_number,
-    count: lead.missed_count,
-    missedAt: new Date().toLocaleString(),
-    type: "lead",
+    count: count,
+    missedAt: time,
+    title: "Missed Call / Reminder Alert",
+    message: employeeMessage,
+    type: "missed_reminder",
+    priority: "high"
+  }, lead.employee_id, false);
+
+  // Send to admin
+  notificationIO.emitNotification("missed_reminder_alert", {
+    leadId: lead.lead_id,
+    leadType: lead.lead_type,
+    userId: lead.employee_id,
+    userName: lead.staff_name,
+    customerName: lead.customer_name,
+    mobileNumber: lead.mobile_number,
+    count: count,
+    missedAt: time,
+    title: "Employee Missed Reminders",
+    message: adminMessage,
+    type: "missed_reminder",
     priority: "high"
   }, null, true);
 };
-*/
 
 // ── REMINDERS ──────────────────────────────────────────────────────────────
 
@@ -102,7 +142,7 @@ router.post("/check-missed", verifyToken, (req, res) => {
 
       // Check for leads with 3+ missed reminders → escalate (all lead types)
       const escalateSql = `
-        SELECT lr.lead_id, lr.lead_type, COUNT(*) as missed_count,
+        SELECT lr.lead_id, lr.lead_type, COUNT(*) as total_missed,
                lr.employee_id,
                COALESCE(t.customer_name, w.customer_name, f.customer_name) as customer_name,
                COALESCE(t.mobile_number, w.mobile_number, f.mobile_number) as mobile_number,
@@ -113,8 +153,8 @@ router.post("/check-missed", verifyToken, (req, res) => {
         LEFT JOIN walkins w ON w.id = lr.lead_id AND lr.lead_type = 'walkin'
         LEFT JOIN fields f ON f.id = lr.lead_id AND lr.lead_type = 'field'
         WHERE lr.status = 'Missed'
-        GROUP BY lr.lead_id, lr.lead_type, lr.employee_id
-        HAVING missed_count >= 3
+        GROUP BY lr.lead_id, lr.lead_type, lr.employee_id, t.customer_name, w.customer_name, f.customer_name, t.mobile_number, w.mobile_number, f.mobile_number, t.staff_name, w.staff_name, f.staff_name, t.followup_date, w.followup_date, f.followup_date
+        HAVING total_missed >= 3
       `;
       db.query(escalateSql, (err2, leads) => {
         if (err2) return res.json({ markedMissed, escalated: 0 });
@@ -124,108 +164,87 @@ router.post("/check-missed", verifyToken, (req, res) => {
         let escalated = 0;
 
         leads.forEach(lead => {
-          db.query(
-            "SELECT id FROM lead_escalations WHERE lead_id=? AND lead_type=? AND status='Open'",
-            [lead.lead_id, lead.lead_type],
-            (e, existing) => {
-              if (e || existing.length > 0) {
-                // Update missed count on existing escalation
-                if (existing.length > 0) {
-                  db.query("UPDATE lead_escalations SET missed_count=?, missed_threshold_reached=1 WHERE id=?", [lead.missed_count, existing[0].id]);
-                  if ([3, 5, 7, 9, 10].includes(Number(lead.missed_count))) {
-                    const notificationIO = getNotificationIO();
-                    if (notificationIO) {
-                      const time = new Date().toLocaleString();
-                      const employeeMessage = `⚠️ You missed ${lead.missed_count} reminders / calls continuously for client "${lead.customer_name}"`;
-                      const adminMessage = `⚠️ ${lead.staff_name} missed ${lead.missed_count} reminders / calls continuously for client "${lead.customer_name}"`;
+          // Check consecutive missed count first!
+          const consecSql = `
+            SELECT status FROM lead_reminders 
+            WHERE lead_id = ? AND lead_type = ? 
+            ORDER BY reminder_date DESC, COALESCE(reminder_time, '00:00:00') DESC, id DESC
+            LIMIT 10
+          `;
+          db.query(consecSql, [lead.lead_id, lead.lead_type], (err3, rows) => {
+            if (err3) {
+              if (--pending === 0) res.json({ markedMissed, escalated });
+              return;
+            }
+            if (!rows) {
+              if (--pending === 0) res.json({ markedMissed, escalated });
+              return;
+            }
 
-                      // Send to employee
-                      notificationIO.emitNotification("missed_reminder_alert", {
-                        leadId: lead.lead_id,
-                        leadType: lead.lead_type,
-                        userId: lead.employee_id,
-                        userName: lead.staff_name,
-                        customerName: lead.customer_name,
-                        mobileNumber: lead.mobile_number,
-                        count: lead.missed_count,
-                        missedAt: time,
-                        title: "Missed Call / Reminder Alert",
-                        message: employeeMessage,
-                        type: "missed_reminder",
-                        priority: "high"
-                      }, lead.employee_id, false);
-
-                      // Send to admin
-                      notificationIO.emitNotification("missed_reminder_alert", {
-                        leadId: lead.lead_id,
-                        leadType: lead.lead_type,
-                        userId: lead.employee_id,
-                        userName: lead.staff_name,
-                        customerName: lead.customer_name,
-                        mobileNumber: lead.mobile_number,
-                        count: lead.missed_count,
-                        missedAt: time,
-                        title: "Employee Missed Reminders",
-                        message: adminMessage,
-                        type: "missed_reminder",
-                        priority: "high"
-                      }, null, true);
-                    }
-                  }
-                }
-                if (--pending === 0) res.json({ markedMissed, escalated });
-                return;
+            let consecutiveMissed = 0;
+            for (let i = 0; i < rows.length; i++) {
+              if (rows[i].status === 'Missed') {
+                consecutiveMissed++;
+              } else if (rows[i].status === 'Done') {
+                break;
               }
+            }
+
+            if (consecutiveMissed >= 3) {
               db.query(
-                "INSERT INTO lead_escalations (lead_id, lead_type, employee_id, customer_name, mobile_number, staff_name, last_followup_date, missed_count, missed_threshold_reached) VALUES (?,?,?,?,?,?,?,?,1)",
-                [lead.lead_id, lead.lead_type, lead.employee_id || null, lead.customer_name, lead.mobile_number, lead.staff_name, toDateOnly(lead.followup_date), lead.missed_count],
-                (e2) => {
-                  if (!e2) {
-                    escalated++;
-                    const notificationIO = getNotificationIO();
-                    if (notificationIO) {
-                      const time = new Date().toLocaleString();
-                      const employeeMessage = `⚠️ You missed ${lead.missed_count} reminders / calls continuously for client "${lead.customer_name}"`;
-                      const adminMessage = `⚠️ New escalation: ${lead.staff_name} missed ${lead.missed_count} reminders / calls continuously for client "${lead.customer_name}"`;
-
-                      // Send to employee
-                      notificationIO.emitNotification("missed_reminder_alert", {
-                        leadId: lead.lead_id,
-                        leadType: lead.lead_type,
-                        userId: lead.employee_id,
-                        userName: lead.staff_name,
-                        customerName: lead.customer_name,
-                        mobileNumber: lead.mobile_number,
-                        count: lead.missed_count,
-                        missedAt: time,
-                        title: "Missed Call / Reminder Alert",
-                        message: employeeMessage,
-                        type: "missed_reminder",
-                        priority: "high"
-                      }, lead.employee_id, false);
-
-                      // Send to admin
-                      notificationIO.emitNotification("missed_reminder_alert", {
-                        leadId: lead.lead_id,
-                        leadType: lead.lead_type,
-                        userId: lead.employee_id,
-                        userName: lead.staff_name,
-                        customerName: lead.customer_name,
-                        mobileNumber: lead.mobile_number,
-                        count: lead.missed_count,
-                        missedAt: time,
-                        title: "Employee Missed Reminders",
-                        message: adminMessage,
-                        type: "missed_reminder",
-                        priority: "high"
-                      }, null, true);
-                    }
+                "SELECT id FROM lead_escalations WHERE lead_id=? AND lead_type=? AND status='Open'",
+                [lead.lead_id, lead.lead_type],
+                (e, existing) => {
+                  if (e) {
+                    if (--pending === 0) res.json({ markedMissed, escalated });
+                    return;
                   }
-                  if (--pending === 0) res.json({ markedMissed, escalated });
+
+                  if (existing && existing.length > 0) {
+                    // Update missed count on existing escalation
+                    db.query("UPDATE lead_escalations SET missed_count=? WHERE id=?", [consecutiveMissed, existing[0].id]);
+                    
+                    if (consecutiveMissed % 3 === 0) {
+                      checkAlertAlreadySent(lead.lead_id, lead.lead_type, consecutiveMissed, (errCheck, alreadySent) => {
+                        if (!errCheck && !alreadySent) {
+                          db.query("UPDATE lead_escalations SET missed_threshold_reached=1 WHERE id=?", [existing[0].id]);
+                          sendMissedAlert(lead, consecutiveMissed);
+                        }
+                        if (--pending === 0) res.json({ markedMissed, escalated });
+                      });
+                    } else {
+                      if (--pending === 0) res.json({ markedMissed, escalated });
+                    }
+                  } else {
+                    // Create new escalation
+                    db.query(
+                      "INSERT INTO lead_escalations (lead_id, lead_type, employee_id, customer_name, mobile_number, staff_name, last_followup_date, missed_count, missed_threshold_reached) VALUES (?,?,?,?,?,?,?,?,1)",
+                      [lead.lead_id, lead.lead_type, lead.employee_id || null, lead.customer_name, lead.mobile_number, lead.staff_name, toDateOnly(lead.followup_date), consecutiveMissed],
+                      (e2) => {
+                        if (!e2) {
+                          escalated++;
+                          if (consecutiveMissed % 3 === 0) {
+                            checkAlertAlreadySent(lead.lead_id, lead.lead_type, consecutiveMissed, (errCheck, alreadySent) => {
+                              if (!errCheck && !alreadySent) {
+                                sendMissedAlert(lead, consecutiveMissed);
+                              }
+                              if (--pending === 0) res.json({ markedMissed, escalated });
+                            });
+                          } else {
+                            if (--pending === 0) res.json({ markedMissed, escalated });
+                          }
+                        } else {
+                          if (--pending === 0) res.json({ markedMissed, escalated });
+                        }
+                      }
+                    );
+                  }
                 }
               );
+            } else {
+              if (--pending === 0) res.json({ markedMissed, escalated });
             }
-          );
+          });
         });
       });
     }

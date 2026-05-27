@@ -67,6 +67,21 @@ function runCheckUpcomingReminders() {
   });
 }
 
+const checkAlertAlreadySent = (leadId, leadType, count, callback) => {
+  db.query(
+    `SELECT id FROM admin_notifications 
+     WHERE type = 'missed_reminder_alert' 
+       AND related_id = ? 
+       AND related_type = ? 
+       AND message LIKE ?`,
+    [leadId, leadType, `%missed ${count} reminders%`],
+    (err, rows) => {
+      if (err) return callback(err, false);
+      callback(null, rows && rows.length > 0);
+    }
+  );
+};
+
 function sendMissedAlert(lead, count) {
   const notificationIO = getNotificationIO();
   if (!notificationIO) {
@@ -185,19 +200,20 @@ function runCheckMissed() {
                   }
 
                   if (existing && existing.length > 0) {
-                    const prevCount = existing[0].missed_count;
-                    const prevThresholdReached = existing[0].missed_threshold_reached;
-
                     // Update missed count and last followup date
                     db.query(
                       "UPDATE lead_escalations SET missed_count=?, last_followup_date=? WHERE id=?",
                       [consecutiveMissed, toDateOnly(lead.last_reminder_date), existing[0].id]
                     );
 
-                    // Send notification ONLY if we haven't notified for 3 consecutive missed reminders yet!
-                    if (consecutiveMissed >= 3 && !prevThresholdReached) {
-                      db.query("UPDATE lead_escalations SET missed_threshold_reached = 1 WHERE id = ?", [existing[0].id]);
-                      sendMissedAlert(lead, consecutiveMissed);
+                    // Send notification ONLY if consecutiveMissed is a multiple of 3 and we haven't notified yet!
+                    if (consecutiveMissed % 3 === 0) {
+                      checkAlertAlreadySent(lead.lead_id, lead.lead_type, consecutiveMissed, (errCheck, alreadySent) => {
+                        if (!errCheck && !alreadySent) {
+                          db.query("UPDATE lead_escalations SET missed_threshold_reached = 1 WHERE id = ?", [existing[0].id]);
+                          sendMissedAlert(lead, consecutiveMissed);
+                        }
+                      });
                     }
                   } else {
                     // Create new escalation with missed_threshold_reached = 1
@@ -212,7 +228,13 @@ function runCheckMissed() {
                           console.error("[Scheduler] lead_escalations insert error:", e2.message);
                         } else {
                           console.log(`[Scheduler] Escalation created for lead ${lead.lead_id} (${lead.lead_type})`);
-                          sendMissedAlert(lead, consecutiveMissed);
+                          if (consecutiveMissed % 3 === 0) {
+                            checkAlertAlreadySent(lead.lead_id, lead.lead_type, consecutiveMissed, (errCheck, alreadySent) => {
+                              if (!errCheck && !alreadySent) {
+                                sendMissedAlert(lead, consecutiveMissed);
+                              }
+                            });
+                          }
                         }
                       }
                     );

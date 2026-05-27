@@ -234,43 +234,25 @@ router.post("/", verifyToken, isAdmin, (req, res) => {
             if (userErr || !userRows.length) return;
             const assignedUser = userRows[0];
             const message = `New task assigned: "${task_title || project_name || "Task"}"${due_date ? ` (Due: ${due_date})` : ""} - Priority: ${project_priority}`;
-            // DISABLED: Old notification system - replaced with 3-type redesign
-            /*
             const notifIO = getNotificationIO();
             if (notifIO && assignedUser.id) {
               notifIO.emitNotification("task_assigned", {
-                taskId, taskName: task_title || project_name,
-                userId: assignedUser.id, userName: assignedUser.first_name || finalStaffName,
-                dueDate: due_date, priority: project_priority, type: "task"
+                taskId,
+                taskName: task_title || project_name,
+                userId: assignedUser.id,
+                userName: assignedUser.first_name || finalStaffName,
+                dueDate: due_date,
+                priority: project_priority,
+                type: "task",
+                message: message,
+                title: "New Task Assigned"
               }, assignedUser.id, false);
-              notifIO.emit("task_updated", { taskId, assignedTo: assignedUser.id });
-            } else {
-              db.query("INSERT INTO notifications (task_id, user_id, type, title, description) VALUES (?, ?, ?, ?, ?)",
-                [taskId, assignedUser.id, "task_assigned", "New Task Assigned", message],
-                () => { }
+            } else if (assignedUser.id) {
+              db.query("INSERT INTO notifications (task_id, user_id, type, title, description) VALUES (?, ?, 'task_assigned', 'New Task Assigned', ?)",
+                [taskId, assignedUser.id, message],
+                () => {}
               );
             }
-            */
-            // New: Store as admin_notification for overdue_task tracking only
-            db.query("INSERT INTO admin_notifications (type, user_id, message, related_id, related_type, priority) VALUES (?, ?, ?, ?, ?, ?)",
-              ["task_assigned", assignedUser.id, `Task assigned to ${assignedUser.first_name || finalStaffName}: "${task_title || project_name}"`, taskId, "task", "normal"],
-              (err, result) => {
-                if (!err) {
-                  const notifIO = getNotificationIO();
-                  if (notifIO) {
-                    notifIO.sendToAdmin("new_notification", {
-                      id: result.insertId,
-                      type: "task_assigned",
-                      message: `Task assigned to ${assignedUser.first_name || finalStaffName}: "${task_title || project_name}"`,
-                      employee_name: assignedUser.first_name || finalStaffName,
-                      priority: "normal",
-                      is_read: 0,
-                      created_at: new Date().toISOString()
-                    });
-                  }
-                }
-              }
-            );
           }
         );
       }
@@ -325,6 +307,26 @@ router.put("/:id", verifyToken, (req, res) => {
               [req.params.id, "Status Updated", `Employee ${req.user.first_name} updated status to ${project_status}`]);
             const notifIO = getNotificationIO();
             if (notifIO) notifIO.emit("task_updated", { taskId: req.params.id, newStatus: project_status });
+            
+            if (project_status === "Completed") {
+              db.query("SELECT task_title, project_name, project_priority FROM tasks WHERE id = ?", [req.params.id], (err, taskRows) => {
+                if (!err && taskRows.length > 0 && notifIO) {
+                  const taskName = taskRows[0].task_title || taskRows[0].project_name || "Task";
+                  const time = new Date().toLocaleString();
+                  notifIO.emitNotification("task_completed", {
+                    taskId: req.params.id,
+                    taskName: taskName,
+                    userId: req.user.id,
+                    userName: req.user.first_name || req.user.name || "Employee",
+                    type: "task",
+                    priority: taskRows[0].project_priority || "normal",
+                    title: "Task Completed",
+                    message: `${req.user.first_name || req.user.name || "Employee"} completed task: "${taskName}"`,
+                    timestamp: time
+                  }, null, true);
+                }
+              });
+            }
             return res.json({ message: "Status updated" });
           }
         );
@@ -350,22 +352,20 @@ router.put("/:id", verifyToken, (req, res) => {
           if (notifIO) notifIO.emit("task_updated", { taskId: req.params.id, newStatus: project_status });
           if (project_status === "Completed") {
             const taskName = task_title || project_name || "Task";
-            db.query("INSERT INTO admin_notifications (type, user_id, message, related_id, related_type, priority) VALUES (?, ?, ?, ?, ?, ?)",
-              ["task_completed", req.user.id, `${req.user.first_name || req.user.name || "Employee"} completed task: "${taskName}"`, req.params.id, "task", project_priority],
-              (nErr, result) => {
-                if (!nErr && notifIO) {
-                  notifIO.sendToAdmin("new_notification", {
-                    id: result.insertId,
-                    type: "task_completed",
-                    message: `${req.user.first_name || req.user.name || "Employee"} completed task: "${taskName}"`,
-                    employee_name: req.user.first_name || req.user.name || "Employee",
-                    priority: project_priority,
-                    is_read: 0,
-                    created_at: new Date().toISOString()
-                  });
-                }
-              }
-            );
+            if (notifIO) {
+              const time = new Date().toLocaleString();
+              notifIO.emitNotification("task_completed", {
+                taskId: req.params.id,
+                taskName: taskName,
+                userId: req.user.id,
+                userName: req.user.first_name || req.user.name || "Employee",
+                type: "task",
+                priority: project_priority || "normal",
+                title: "Task Completed",
+                message: `${req.user.first_name || req.user.name || "Employee"} completed task: "${taskName}"`,
+                timestamp: time
+              }, null, true);
+            }
           }
           res.json({ message: "Task updated" });
         }
@@ -779,19 +779,23 @@ router.post("/targets", verifyToken, isAdmin, (req, res) => {
                 (userErr, userRows) => {
                   if (!userErr && userRows.length && userRows[0].id) {
                     const targetUser = userRows[0];
-                    // DISABLED: Old notification system
-                    /*
-                    if (notificationIO) {
+                    if (notificationIO && targetUser.id) {
                       notificationIO.emitNotification("new_target", {
-                        id: newTargetId, userId: targetUser.id, userName: targetUser.first_name || user_name,
-                        targetAmount: yearly_target, monthlyTarget, type: "target"
+                        id: newTargetId,
+                        userId: targetUser.id,
+                        userName: targetUser.first_name || user_name,
+                        targetAmount: yearly_target,
+                        monthlyTarget,
+                        type: "target",
+                        title: "New Target Assigned",
+                        message: message
                       }, targetUser.id, false);
+                    } else if (targetUser.id) {
+                      db.query("INSERT INTO notifications (task_id, user_id, type, title, description) VALUES (?, ?, ?, ?, ?)",
+                        [0, targetUser.id, "target_assigned", "New Target Assigned", message],
+                        () => { }
+                      );
                     }
-                    */
-                    db.query("INSERT INTO notifications (task_id, user_id, type, title, description) VALUES (?, ?, ?, ?, ?)",
-                      [0, targetUser.id, "target_assigned", "New Target Assigned", message],
-                      () => { }
-                    );
                   }
                 }
               );
@@ -1004,28 +1008,19 @@ const processAchievement = (user_id, user_name, targetId, monthlyTarget, achieve
                                 // STEP 7: Send notifications & update admin side
                                 // ═══════════════════════════════════════════════════════════
                                 
-                                // Employee notification (if target completed)
+                                // Admin notification (if target completed)
                                 if (monthlyPercentage >= 100 && notifIO) {
-                                  const time = new Date().toLocaleString();
-                                  notifIO.emitNotification("target_completed", {
-                                    userId: user_id, userName: user_name, targetId: targetId,
-                                    percentage: monthlyPercentage, achievedAmount: newAchieved,
-                                    effectiveTarget: effectiveTarget,
-                                    title: "🎉 Target Completed!",
-                                    message: `Congratulations! You've completed your monthly target of Rs.${Number(effectiveTarget).toLocaleString()}.`,
-                                    type: "target_completed", timestamp: time
-                                  }, user_id, false);
-
-                                  // Admin notification
-                                  notifIO.emitNotification("target_completed", {
-                                    userId: user_id, userName: user_name, targetId: targetId,
-                                    percentage: monthlyPercentage, achievedAmount: newAchieved,
-                                    effectiveTarget: effectiveTarget,
-                                    title: "🎯 Employee Target Completed",
-                                    message: `${user_name} has completed their monthly target of Rs.${Number(effectiveTarget).toLocaleString()} (${monthlyPercentage}%).`,
-                                    type: "target_completed", timestamp: time
-                                  }, null, true);
-                                }
+                                   const time = new Date().toLocaleString();
+                                   // Admin notification
+                                   notifIO.emitNotification("target_completed", {
+                                     userId: user_id, userName: user_name, targetId: targetId,
+                                     percentage: monthlyPercentage, achievedAmount: newAchieved,
+                                     effectiveTarget: effectiveTarget,
+                                     title: "🎯 Employee Target Completed",
+                                     message: `${user_name} has completed their monthly target of Rs.${Number(effectiveTarget).toLocaleString()} (${monthlyPercentage}%).`,
+                                     type: "target_completed", timestamp: time
+                                   }, null, true);
+                                 }
 
                                 // ═══════════════════════════════════════════════════════════
                                 // STEP 8: Insert into admin_notifications + Broadcast
