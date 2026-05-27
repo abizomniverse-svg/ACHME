@@ -36,7 +36,30 @@ const Profile = () => {
   const [showNewPass, setShowNewPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
-  const [smtpData, setSmtpData] = useState({ email_pass: "", smtp_host: "smtp.gmail.com", smtp_port: "587" });
+  const [smtpData, setSmtpData] = useState(() => {
+    try {
+      const local = localStorage.getItem("user_smtp_config");
+      if (local) {
+        const parsed = JSON.parse(local);
+        return {
+          email_user: parsed.email_user || "",
+          email_pass: parsed.email_pass || "",
+          smtp_host: parsed.smtp_host || "smtp.gmail.com",
+          smtp_port: parsed.smtp_port || "587",
+          smtp_secure: parsed.smtp_secure || "STARTTLS",
+          from_email_address: parsed.from_email_address || ""
+        };
+      }
+    } catch (_) {}
+    return {
+      email_user: "",
+      email_pass: "",
+      smtp_host: "smtp.gmail.com",
+      smtp_port: "587",
+      smtp_secure: "STARTTLS",
+      from_email_address: ""
+    };
+  });
   const [hasSMTP, setHasSMTP] = useState(false);
   const [smtpLoading, setSmtpLoading] = useState(false);
 
@@ -159,11 +182,16 @@ const Profile = () => {
       });
       if (res.data.hasConfig) {
         setHasSMTP(true);
-        setSmtpData({
+        const config = {
+          email_user: res.data.config.email_user || "",
           email_pass: "••••••••••••••••",
           smtp_host: res.data.config.smtp_host || "smtp.gmail.com",
-          smtp_port: String(res.data.config.smtp_port || 587)
-        });
+          smtp_port: String(res.data.config.smtp_port || 587),
+          smtp_secure: res.data.config.smtp_secure || "STARTTLS",
+          from_email_address: res.data.config.from_email_address || ""
+        };
+        setSmtpData(config);
+        localStorage.setItem("user_smtp_config", JSON.stringify({ ...config, email_pass: res.data.config.email_pass || "••••••••••••••••" }));
       }
     } catch (err) {
       console.error("Failed to load SMTP config:", err);
@@ -173,7 +201,7 @@ const Profile = () => {
   const handleSMTPSave = async (e) => {
     e.preventDefault();
     if (!smtpData.email_pass.trim()) {
-      setMessage({ type: "error", text: "App password is required" });
+      setMessage({ type: "error", text: "SMTP App Password is required" });
       return;
     }
 
@@ -181,14 +209,28 @@ const Profile = () => {
     try {
       const token = localStorage.getItem("token");
       await axios.post(`${API}/api/auth/save-email-config`, {
+        email_user: smtpData.email_user,
         email_pass: smtpData.email_pass,
         smtp_host: smtpData.smtp_host,
-        smtp_port: parseInt(smtpData.smtp_port) || 587
+        smtp_port: parseInt(smtpData.smtp_port) || 587,
+        smtp_secure: smtpData.smtp_secure,
+        from_email_address: smtpData.from_email_address
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMessage({ type: "success", text: "SMTP Configuration saved successfully" });
       setHasSMTP(true);
+      
+      // Save locally
+      localStorage.setItem("user_smtp_config", JSON.stringify({
+        email_user: smtpData.email_user,
+        email_pass: smtpData.email_pass,
+        smtp_host: smtpData.smtp_host,
+        smtp_port: smtpData.smtp_port,
+        smtp_secure: smtpData.smtp_secure,
+        from_email_address: smtpData.from_email_address
+      }));
+
       fetchSMTPConfig();
     } catch (err) {
       setMessage({ type: "error", text: err.response?.data?.message || "Failed to save SMTP config" });
@@ -458,7 +500,7 @@ const Profile = () => {
             <Mail size={24} />
             <div>
               <h3 className="text-lg font-bold">SMTP Email Configuration</h3>
-              <p className="text-indigo-100 text-xs">Send proposals, invoices and service details via your own custom Gmail account</p>
+              <p className="text-indigo-100 text-xs">Configure custom outgoing SMTP settings to send proposals, invoices, and service estimates</p>
             </div>
           </div>
         </div>
@@ -487,32 +529,53 @@ const Profile = () => {
                 required
               />
             </div>
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Gmail App Password</label>
-              <a 
-                href="https://myaccount.google.com/apppasswords" 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="text-xs text-blue-500 hover:underline font-medium"
-              >
-                How to generate?
-              </a>
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">SMTP Username / Email Address</label>
+              <input 
+                type="email" 
+                value={smtpData.email_user} 
+                onChange={(e) => setSmtpData({ ...smtpData, email_user: e.target.value })} 
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
+                placeholder="e.g. info@yourcompany.com"
+                required
+              />
             </div>
-            <input 
-              type="password" 
-              value={smtpData.email_pass} 
-              onChange={(e) => setSmtpData({ ...smtpData, email_pass: e.target.value })} 
-              onClick={() => { if (hasSMTP && smtpData.email_pass === "••••••••••••••••") setSmtpData({ ...smtpData, email_pass: "" }); }}
-              className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
-              placeholder={hasSMTP ? "Enter new app password to overwrite" : "Enter 16-character app password"}
-              required
-            />
-            <p className="text-[11px] text-gray-400 leading-normal">
-              Emails will be sent from your registered account email: <b>{profile.email}</b>.
-            </p>
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">SMTP Password or App Password</label>
+              <input 
+                type="password" 
+                value={smtpData.email_pass} 
+                onChange={(e) => setSmtpData({ ...smtpData, email_pass: e.target.value })} 
+                onClick={() => { if (hasSMTP && smtpData.email_pass === "••••••••••••••••") setSmtpData({ ...smtpData, email_pass: "" }); }}
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
+                placeholder={hasSMTP ? "Enter new password to overwrite" : "Enter SMTP/App password"}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Encryption Type</label>
+              <select
+                value={smtpData.smtp_secure}
+                onChange={(e) => setSmtpData({ ...smtpData, smtp_secure: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all bg-white"
+                required
+              >
+                <option value="STARTTLS">STARTTLS (Usually Port 587 / 25)</option>
+                <option value="SSL/TLS">SSL/TLS (Usually Port 465)</option>
+                <option value="None">None (Insecure / Port 25)</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">From Email Address</label>
+              <input 
+                type="email" 
+                value={smtpData.from_email_address} 
+                onChange={(e) => setSmtpData({ ...smtpData, from_email_address: e.target.value })} 
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
+                placeholder="e.g. proposals@yourcompany.com"
+                required
+              />
+            </div>
           </div>
 
           <div className="flex justify-end pt-2 border-t border-gray-100">

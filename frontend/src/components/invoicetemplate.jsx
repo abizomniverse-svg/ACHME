@@ -134,8 +134,8 @@ const Invoice = ({ quotationId, type = "quotation", pdfMode = false }) => {
     branch: h.bank_branch || (h.bank_details_id ? getBankData(h.bank_details_id).branch : "Coimbatore"),
   };
 
-  const execName = h.exec_name || "KRISHNA KUMAR M";
-  const execPhone = h.exec_phone || "9842235515";
+  const execName = h.exec_name || "";
+  const execPhone = h.exec_phone || "";
   const execEmail = h.exec_email || "";
 
   const clientAddr = [h.client_address1, h.client_address2, [h.client_city, h.client_state].filter(Boolean).join(", ")]
@@ -219,15 +219,16 @@ const Invoice = ({ quotationId, type = "quotation", pdfMode = false }) => {
               <div className="ft-box-title">BILLED TO</div>
               <h3>{h.customer_name || "---"}</h3>
               {h.client_company && <div className="ft-compact">{h.client_company}</div>}
+              {h.gst_number && <div className="ft-gst">GSTIN: {h.gst_number}</div>}
               {(clientAddr || h.client_pincode) && (
-                <div className="ft-compact" style={{ marginTop: "6px" }}>
+                <div className="ft-compact">
                   {clientAddr}
                   {clientPin}
                   {clientCountry}
                 </div>
               )}
               {h.mobile_number && (
-                <div className="ft-contact-line" style={{ marginTop: "6px" }}>
+                <div className="ft-contact-line">
                   <span className="label">Ph:</span>
                   <span>{h.mobile_number}</span>
                 </div>
@@ -236,12 +237,6 @@ const Invoice = ({ quotationId, type = "quotation", pdfMode = false }) => {
                 <div className="ft-contact-line">
                   <span className="label">Email:</span>
                   <span>{h.email}</span>
-                </div>
-              )}
-              {h.gst_number && (
-                <div className="ft-contact-line">
-                  <span className="label">GST:</span>
-                  <span>{h.gst_number}</span>
                 </div>
               )}
             </div>
@@ -405,19 +400,25 @@ const Invoice = ({ quotationId, type = "quotation", pdfMode = false }) => {
           )}
 
           {/* FOOTER */}
-          <footer className="ft-footer">
-            <div>
-              <span>Executive:</span> {execName}
-            </div>
-            <div>
-              <span>PH:</span> {execPhone}
-            </div>
-            {execEmail && (
-              <div>
-                <span>Email:</span> {execEmail}
-              </div>
-            )}
-          </footer>
+          {(execName || execPhone || execEmail) && (
+            <footer className="ft-footer">
+              {execName && (
+                <div>
+                  <span>Executive:</span> {execName}
+                </div>
+              )}
+              {execPhone && (
+                <div>
+                  <span>PH:</span> {execPhone}
+                </div>
+              )}
+              {execEmail && (
+                <div>
+                  <span>Email:</span> {execEmail}
+                </div>
+              )}
+            </footer>
+          )}
         </div>
       </main>
     </div>

@@ -39,7 +39,7 @@ const BANK_DETAILS_CONFIG = [
 ];
 
 const emptyExtra = () => ({
-  from_address_id: "", from_address_custom: "",
+  from_address_id: "", from_address_custom: "Opp to SMS Hotel, Peelamedu, Avinashi Road, Coimbatore-641004 | GSTIN: 33AAHFA7876M1ZX",
   client_company: "", client_address1: "", client_address2: "",
   client_city: "", client_state: "", client_pincode: "", client_country: "India",
   tax_type: "GST18", custom_tax: "",
@@ -84,7 +84,7 @@ const PerformaInvoice = () => {
 
   const [items, setItems] = useState([{ name: "", brand_model: "", hsn_sac: "", uom: "Nos", price: 0, qty: 1, tax: 18, discount: 0 }]);
   const [customer, setCustomer] = useState({ customer_name: "", mobile_number: "", email: "", gst_number: "", location_city: "" });
-  const [performaInvoice, setPerformaInvoice] = useState({ invoice_date: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })() });
+  const [performaInvoice, setPerformaInvoice] = useState({ invoice_date: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })() });
   const [extra, setExtra] = useState(emptyExtra());
   const [editingIndex, setEditingIndex] = useState(null);
 
@@ -119,7 +119,7 @@ const PerformaInvoice = () => {
       const a = document.createElement("a"); a.href = url;
       a.download = `ProformaInvoice_${formatPINumber(id, findInvoice(id)?.invoice_date)}.pdf`;
       a.click(); URL.revokeObjectURL(url);
-    } catch(e) { alert("Download failed: " + e.message); }
+    } catch (e) { alert("Download failed: " + e.message); }
   };
 
   const downloadHTML = async () => {
@@ -131,7 +131,7 @@ const PerformaInvoice = () => {
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       downloadAsHtml(data, "proforma");
-    } catch(e) { alert("Download failed: " + e.message); }
+    } catch (e) { alert("Download failed: " + e.message); }
   };
 
   useEffect(() => {
@@ -150,29 +150,29 @@ const PerformaInvoice = () => {
   }, []);
 
   const fetchPerformaInvoices = async () => {
-    try { 
+    try {
       const token = localStorage.getItem("token");
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      const res = await axios.get(`${API_BACKEND}/api/performainvoice`, config); 
-      setPerformaInvoices(res.data); 
+      const res = await axios.get(`${API_BACKEND}/api/performainvoice`, config);
+      setPerformaInvoices(res.data);
     }
     catch (err) { console.error(err); }
   };
   const fetchQuotations = async () => {
-    try { 
+    try {
       const token = localStorage.getItem("token");
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      const res = await axios.get(`${API_BACKEND}/api/quotations`, config); 
-      setQuotations(res.data); 
+      const res = await axios.get(`${API_BACKEND}/api/quotations`, config);
+      setQuotations(res.data);
     }
     catch (err) { console.error(err); }
   };
   const fetchFromAddresses = async () => {
-    try { 
+    try {
       const token = localStorage.getItem("token");
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      const res = await axios.get(`${API_BACKEND}/api/performainvoice/from-addresses`, config); 
-      setFromAddresses(res.data); 
+      const res = await axios.get(`${API_BACKEND}/api/performainvoice/from-addresses`, config);
+      setFromAddresses(res.data);
     }
     catch (err) { console.error(err); }
   };
@@ -268,7 +268,7 @@ const PerformaInvoice = () => {
     setDescInput(loadedItems.map(i => i.name).join(", "));
     setBrandInput(loadedItems[0]?.brand_model || "");
     setExtra({
-      from_address_id: h.from_address_id || "", from_address_custom: h.from_address_custom || "",
+      from_address_id: h.from_address_id || "", from_address_custom: h.from_address_custom || (BRANCH_DATA[h.supplier_branch || "Coimbatore"] ? `${BRANCH_DATA[h.supplier_branch || "Coimbatore"].address} | GSTIN: ${BRANCH_DATA[h.supplier_branch || "Coimbatore"].gstin}` : ""),
       client_company: h.client_company || "", client_address1: h.client_address1 || "",
       client_address2: h.client_address2 || "", client_city: h.client_city || "",
       client_state: h.client_state || "", client_pincode: h.client_pincode || "", client_country: h.client_country || "India",
@@ -367,7 +367,7 @@ const PerformaInvoice = () => {
   const handleAddItem = () => {
     if (!descInput.trim()) return;
     const newItem = { name: descInput, brand_model: brandInput || "", hsn_sac: "", uom: "Nos", price: 0, qty: 1, tax: 18, discount: 0 };
-    
+
     if (editingIndex !== null) {
       const updated = [...items];
       updated[editingIndex] = { ...updated[editingIndex], name: descInput, brand_model: brandInput || updated[editingIndex].brand_model };
@@ -388,7 +388,7 @@ const PerformaInvoice = () => {
     setItems([{ name: "", brand_model: "", hsn_sac: "", uom: "Nos", price: 0, qty: 1, tax: 18, discount: 0 }]);
     setDescInput("");
     setBrandInput("");
-    setPerformaInvoice({ invoice_date: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })() });
+    setPerformaInvoice({ invoice_date: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })() });
     setExtra(emptyExtra());
     setEditId(null);
     setEditingIndex(null);
@@ -441,7 +441,7 @@ const PerformaInvoice = () => {
   };
 
   const updateItem = (i, field, value) => { const copy = [...items]; copy[i][field] = value; setItems(copy); };
-  const removeItem = () => { if (items.length <= 1) return; const n = items.slice(0, -1); setItems(n); setDescInput(n.map(i => i.name).join(", ")); setBrandInput(n[n.length-1]?.brand_model||""); };
+  const removeItem = () => { if (items.length <= 1) return; const n = items.slice(0, -1); setItems(n); setDescInput(n.map(i => i.name).join(", ")); setBrandInput(n[n.length - 1]?.brand_model || ""); };
   const formatDate = (date) => date ? new Date(date).toLocaleString("en-IN", { dateStyle: "medium" }) : "---";
 
   useEffect(() => {
@@ -472,13 +472,13 @@ const PerformaInvoice = () => {
             <Search size={18} className="text-gray-500" />
             <input type="text" placeholder="Search by customer..." className="outline-none text-sm w-40 bg-transparent" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
           </div>
-          <div className="flex items-center gap-2 mt-2">
+          {/* <div className="flex items-center gap-2 mt-2">
             <button onClick={downloadPDF} title="Download PDF" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Download size={20} /></button>
             <button onClick={downloadHTML} title="Download HTML" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><FileText size={18} /></button>
             <button onClick={openMailModal} title="Send Email" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Mail size={18} /></button>
             <button onClick={() => { if (!selectedId) return alert("Select an item"); handleEdit(selectedId); }} title="Edit" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Edit2 size={18} /></button>
             <button onClick={handleDelete} title="Delete" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Trash2 size={18} className="text-red-500" /></button>
-          </div>
+          </div> */}
           <div className="mt-2">
             <button onClick={() => { resetForm(); setOpen(true); }} className="bg-[#FF3355] text-white w-12 h-12 rounded-full flex justify-center items-center shadow-lg hover:bg-[#e62848] transition"><Plus size={24} /></button>
           </div>
@@ -554,8 +554,8 @@ const PerformaInvoice = () => {
                 <select value={extra.supplier_branch} onChange={e => {
                   const branch = e.target.value;
                   const branchInfo = BRANCH_DATA[branch];
-                  setExtra(ex => ({ 
-                    ...ex, 
+                  setExtra(ex => ({
+                    ...ex,
                     supplier_branch: branch,
                     from_address_custom: branchInfo ? `${branchInfo.address} | GSTIN: ${branchInfo.gstin}` : ex.from_address_custom,
                     from_address_id: ""
@@ -568,6 +568,7 @@ const PerformaInvoice = () => {
                   ))}
                 </select>
               </div>
+              {/* 
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-bold text-gray-500 uppercase">Office Address</label>
                 <select value={extra.from_address_id} onChange={e => {
@@ -589,6 +590,7 @@ const PerformaInvoice = () => {
                   <option value="ADD_NEW">+ Add New Custom Address</option>
                 </select>
               </div>
+              */}
             </div>
 
             {extra.from_address_custom && (
@@ -597,6 +599,7 @@ const PerformaInvoice = () => {
               </div>
             )}
 
+            {/* 
             {extra.supplier_branch && (
               <div className="mt-2 border rounded-xl overflow-hidden">
                 <div className="bg-indigo-600 text-white px-4 py-2 text-xs font-bold uppercase tracking-wide flex items-center gap-2">
@@ -622,6 +625,7 @@ const PerformaInvoice = () => {
                 ))}
               </div>
             )}
+            */}
 
             {/* Add new address inline */}
             <div className="flex items-center gap-2">
@@ -649,13 +653,13 @@ const PerformaInvoice = () => {
                 </h4>
                 <div className="flex items-center gap-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase">Bank A/C:</label>
-                  <select 
-                    value={extra.bank_details_id} 
+                  <select
+                    value={extra.bank_details_id}
                     onChange={e => {
                       const b = BANK_DETAILS_CONFIG.find(x => x.id === e.target.value);
                       if (b) {
-                        setExtra(ex => ({ 
-                          ...ex, 
+                        setExtra(ex => ({
+                          ...ex,
                           bank_details_id: b.id,
                           bank_company: b.company,
                           bank_name: b.bank,
@@ -673,7 +677,7 @@ const PerformaInvoice = () => {
                   </select>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
                 <div className="flex items-center border-b border-slate-100 pb-1">
                   <span className="w-20 text-[11px] font-bold text-slate-500 uppercase">Company</span>
@@ -717,29 +721,29 @@ const PerformaInvoice = () => {
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-bold text-gray-500 uppercase">Customer Name *</label>
                 <div className="relative">
-                <ClientSearchDropdown
-                  value={customer.customer_name}
-                  onSelect={(client) => {
-                    setCustomer({
-                      customer_name: client.name || "",
-                      mobile_number: client.phone || "",
-                      email: client.email || client.lead_email || "",
-                      gst_number: client.gst_number || "",
-                      location_city: client.lead_city || client.city || ""
-                    });
-                    setExtra(ex => ({
-                      ...ex,
-                      client_company: client.company_name || "",
-                      client_address1: client.address || "",
-                      client_address2: "",
-                      client_city: client.lead_city || client.city || "",
-                      client_state: client.state || "",
-                      client_pincode: client.pincode || "",
-                      client_country: "India"
-                    }));
-                  }}
-                  required
-                />
+                  <ClientSearchDropdown
+                    value={customer.customer_name}
+                    onSelect={(client) => {
+                      setCustomer({
+                        customer_name: client.name || "",
+                        mobile_number: client.phone || "",
+                        email: client.email || client.lead_email || "",
+                        gst_number: client.gst_number || "",
+                        location_city: client.lead_city || client.city || ""
+                      });
+                      setExtra(ex => ({
+                        ...ex,
+                        client_company: client.company_name || "",
+                        client_address1: client.address || "",
+                        client_address2: "",
+                        client_city: client.lead_city || client.city || "",
+                        client_state: client.state || "",
+                        client_pincode: client.pincode || "",
+                        client_country: "India"
+                      }));
+                    }}
+                    required
+                  />
                 </div>
               </div>
               <div className="flex flex-col gap-1">
@@ -801,15 +805,17 @@ const PerformaInvoice = () => {
             {/* ── SECTION 4: ITEMS TABLE ── */}
             <SectionTitle>Quote Items</SectionTitle>
             <div className="flex flex-col gap-1 mb-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase">Description</label>
                   <textarea value={descInput} onChange={e => setDescInput(e.target.value)} placeholder="e.g. Laptop, specs..." className="w-full border rounded-lg px-3 py-2 outline-none min-h-[60px] text-sm" />
                 </div>
+                {/* 
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase">Brand / Model</label>
                   <textarea value={brandInput} onChange={e => setBrandInput(e.target.value)} placeholder="e.g. Dell, Cisco..." className="w-full border rounded-lg px-3 py-2 outline-none min-h-[60px] text-sm" />
                 </div>
+                */}
               </div>
               <div className="flex gap-2 items-end">
                 <div className="flex-1" />
@@ -840,13 +846,13 @@ const PerformaInvoice = () => {
                     <tr key={i} className="border-b last:border-0">
                       <td className="px-3 py-2 text-gray-400 text-xs">{i + 1}</td>
                       <td className="px-3 py-2">
-                          <input 
-                          type="text" 
-                          value={item.name} 
+                        <input
+                          type="text"
+                          value={item.name}
                           onChange={e => updateItem(i, "name", e.target.value)}
                           onClick={() => { setDescInput(item.name); setBrandInput(item.brand_model); setEditingIndex(i); }}
-                          className="w-full outline-none bg-transparent text-sm cursor-text hover:text-blue-600 font-medium" 
-                          placeholder="Enter item description..." 
+                          className="w-full outline-none bg-transparent text-sm cursor-text hover:text-blue-600 font-medium"
+                          placeholder="Enter item description..."
                         />
                       </td>
                       <td className="px-3 py-2"><input type="text" value={item.brand_model} onChange={e => updateItem(i, "brand_model", e.target.value)} onClick={() => { setDescInput(item.name); setBrandInput(item.brand_model); setEditingIndex(i); }} className="w-full outline-none bg-transparent text-sm cursor-text hover:text-blue-600" placeholder="Brand/Model" /></td>
@@ -985,7 +991,19 @@ const PerformaInvoice = () => {
                   ))}
                 </div>
                 {extra.terms_payment === "Custom" && (
-                  <input type="text" value={extra.terms_payment_custom} onChange={e => setExtra(ex => ({ ...ex, terms_payment_custom: e.target.value }))} placeholder="Enter custom payment terms..." className="mt-2 border rounded-lg px-3 py-2 outline-none text-sm w-full bg-white" />
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="number"
+                      value={extra.terms_payment_custom ? extra.terms_payment_custom.replace(" Days", "") : ""}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setExtra(ex => ({ ...ex, terms_payment_custom: val ? `${val} Days` : "" }));
+                      }}
+                      placeholder="Enter number of days..."
+                      className="border rounded-lg px-3 py-2 outline-none text-sm w-48 bg-white"
+                    />
+                    <span className="text-sm text-gray-600 font-medium">Days</span>
+                  </div>
                 )}
               </div>
 
@@ -1084,20 +1102,20 @@ const PerformaInvoice = () => {
             <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2"><Mail size={20} /> Send Proforma Invoice</h2>
             <X className="cursor-pointer text-gray-400 hover:text-red-500" onClick={() => setMailOpen(false)} />
           </div>
-            <div className="space-y-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-500 uppercase">To (Email)</label>
-                <input type="email" value={mailTo} onChange={e => setMailTo(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" placeholder="recipient@email.com" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-500 uppercase">CC (Email)</label>
-                <input type="email" value={mailCc} onChange={e => setMailCc(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" placeholder="cc@email.com" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-bold text-gray-500 uppercase">Subject</label>
-                <input type="text" value={mailSubject} onChange={e => setMailSubject(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" />
-              </div>
+          <div className="space-y-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">To (Email)</label>
+              <input type="email" value={mailTo} onChange={e => setMailTo(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" placeholder="recipient@email.com" />
             </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">CC (Email)</label>
+              <input type="email" value={mailCc} onChange={e => setMailCc(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" placeholder="cc@email.com" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Subject</label>
+              <input type="text" value={mailSubject} onChange={e => setMailSubject(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+          </div>
           <div className="flex gap-4 pt-6">
             <button onClick={handleSendEmail} disabled={mailSending} className="bg-blue-600 text-white px-8 py-2.5 rounded-lg hover:bg-blue-700 font-bold shadow transition disabled:opacity-60">
               {mailSending ? "Sending..." : "Send Email"}
@@ -1117,9 +1135,9 @@ const PerformaInvoice = () => {
         </div>
       )}
       {showSMTPPrompt && (
-        <SMTPConfigPrompt 
-          email={user?.email || ""} 
-          onClose={() => setShowSMTPPrompt(false)} 
+        <SMTPConfigPrompt
+          email={user?.email || ""}
+          onClose={() => setShowSMTPPrompt(false)}
         />
       )}
     </div>

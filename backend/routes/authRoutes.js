@@ -568,7 +568,7 @@ router.post("/change-password-direct", verifyToken, (req, res) => {
 router.get("/check-email-config", verifyToken, (req, res) => {
   const userId = req.user.id;
   db.query(
-    "SELECT id, email_user, smtp_host, smtp_port FROM user_email_configs WHERE user_id = ?",
+    "SELECT id, email_user, smtp_host, smtp_port, smtp_secure, from_email_address FROM user_email_configs WHERE user_id = ?",
     [userId],
     (err, rows) => {
       if (err) return res.status(500).json({ message: "Failed to check email config" });
@@ -583,35 +583,46 @@ router.get("/check-email-config", verifyToken, (req, res) => {
 /* ================= SAVE/UPDATE USER EMAIL SMTP CONFIG ================= */
 router.post("/save-email-config", verifyToken, (req, res) => {
   const userId = req.user.id;
-  const { email_pass, smtp_host, smtp_port } = req.body;
+  const { email_user, email_pass, smtp_host, smtp_port, smtp_secure, from_email_address } = req.body;
 
-  if (!email_pass) {
-    return res.status(400).json({ message: "Email password is required" });
-  }
-
-  // Fetch the user's email address first to auto-populate
+  // Fetch the user's email address first to auto-populate default if needed
   db.query("SELECT email FROM users WHERE id = ?", [userId], (err, rows) => {
     if (err || !rows.length) {
       return res.status(500).json({ message: "Failed to find user email" });
     }
-    const emailUser = rows[0].email;
-    const host = smtp_host || "smtp.gmail.com";
-    const port = smtp_port || 587;
+    const defaultEmailUser = rows[0].email;
+    const finalEmailUser = email_user ? email_user.trim() : defaultEmailUser;
+    const host = smtp_host ? smtp_host.trim() : "smtp.gmail.com";
+    const port = parseInt(smtp_port) || 587;
+    const secureType = smtp_secure || "STARTTLS";
+    const finalFromEmail = from_email_address ? from_email_address.trim() : finalEmailUser;
 
-    // Use INSERT ... ON DUPLICATE KEY UPDATE
-    db.query(
-      `INSERT INTO user_email_configs (user_id, email_user, email_pass, smtp_host, smtp_port)
-       VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE email_user = ?, email_pass = ?, smtp_host = ?, smtp_port = ?`,
-      [userId, emailUser, email_pass, host, port, emailUser, email_pass, host, port],
-      (err2) => {
-        if (err2) {
-          console.error("save-email-config db error:", err2);
-          return res.status(500).json({ message: "Failed to save email configuration" });
-        }
-        res.json({ message: "Email SMTP configuration saved successfully" });
+    // Check if an existing configuration exists to preserve password if placeholder is sent
+    db.query("SELECT email_pass FROM user_email_configs WHERE user_id = ?", [userId], (errExist, rowsExist) => {
+      let finalPass = email_pass;
+      if ((!finalPass || finalPass === "••••••••••••••••") && rowsExist && rowsExist.length > 0) {
+        finalPass = rowsExist[0].email_pass;
       }
-    );
+
+      if (!finalPass) {
+        return res.status(400).json({ message: "SMTP Password or App Password is required" });
+      }
+
+      // Use INSERT ... ON DUPLICATE KEY UPDATE
+      db.query(
+        `INSERT INTO user_email_configs (user_id, email_user, email_pass, smtp_host, smtp_port, smtp_secure, from_email_address)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE email_user = ?, email_pass = ?, smtp_host = ?, smtp_port = ?, smtp_secure = ?, from_email_address = ?`,
+        [userId, finalEmailUser, finalPass, host, port, secureType, finalFromEmail, finalEmailUser, finalPass, host, port, secureType, finalFromEmail],
+        (err2) => {
+          if (err2) {
+            console.error("save-email-config db error:", err2);
+            return res.status(500).json({ message: "Failed to save email configuration" });
+          }
+          res.json({ message: "Email SMTP configuration saved successfully" });
+        }
+      );
+    });
   });
 });
 

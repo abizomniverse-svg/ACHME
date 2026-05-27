@@ -430,6 +430,8 @@ async function ensureTablesAndColumns() {
         email_pass VARCHAR(255) NOT NULL,
         smtp_host VARCHAR(100) DEFAULT 'smtp.gmail.com',
         smtp_port INT DEFAULT 587,
+        smtp_secure VARCHAR(50) DEFAULT 'STARTTLS',
+        from_email_address VARCHAR(150) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY unique_user_id (user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
@@ -714,7 +716,10 @@ async function ensureTablesAndColumns() {
     { table: "customers", column: "gst_number", definition: "gst_number VARCHAR(50) DEFAULT NULL" },
     { table: "customers", column: "created_by", definition: "created_by INT DEFAULT NULL" },
     // Users extra columns
-    { table: "users", column: "last_name", definition: "last_name VARCHAR(100) DEFAULT NULL" }
+    { table: "users", column: "last_name", definition: "last_name VARCHAR(100) DEFAULT NULL" },
+    // user_email_configs extra columns
+    { table: "user_email_configs", column: "smtp_secure", definition: "smtp_secure VARCHAR(50) DEFAULT 'STARTTLS'" },
+    { table: "user_email_configs", column: "from_email_address", definition: "from_email_address VARCHAR(150) DEFAULT NULL" }
   ];
 
   const enumFixes = [

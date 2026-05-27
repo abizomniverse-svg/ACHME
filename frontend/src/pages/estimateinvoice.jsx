@@ -18,7 +18,7 @@ const WARRANTY_OPTIONS = ["No Warranty", "Testing Warranty", "1 Month", "3 Month
 const GST_STATE_MAP = {"01":"Jammu and Kashmir","02":"Himachal Pradesh","03":"Punjab","04":"Chandigarh","05":"Uttarakhand","06":"Haryana","07":"Delhi","08":"Rajasthan","09":"Uttar Pradesh","10":"Bihar","11":"Sikkim","12":"Arunachal Pradesh","13":"Nagaland","14":"Manipur","15":"Mizoram","16":"Tripura","17":"Meghalaya","18":"Assam","19":"West Bengal","20":"Jharkhand","21":"Odisha","22":"Chhattisgarh","23":"Madhya Pradesh","24":"Gujarat","25":"Dadra and Nagar Haveli and Daman and Diu","26":"Dadra and Nagar Haveli and Daman and Diu","27":"Maharashtra","29":"Karnataka","30":"Goa","31":"Lakshadweep","32":"Kerala","33":"Tamil Nadu","34":"Puducherry","35":"Andaman and Nicobar Islands","36":"Telangana","37":"Andhra Pradesh","38":"Ladakh"};
 
 const emptyExtra = () => ({
-  from_address_id: "", from_address_custom: "",
+  from_address_id: "", from_address_custom: "Opp to SMS Hotel, Peelamedu, Avinashi Road, Coimbatore-641004 | GSTIN: 33AAHFA7876M1ZX",
   client_company: "", client_address1: "", client_address2: "",
   client_city: "", client_state: "", client_pincode: "", client_country: "India",
   tax_type: "GST18", custom_tax: "",
@@ -176,8 +176,9 @@ const EstimateInvoice = () => {
     setItems(loadedItems);
     setDescInput(loadedItems.map(i => i.name).join(", "));
     setBrandInput(loadedItems[0]?.brand_model || "");
+    const branch = h.supplier_branch || "Coimbatore";
     setExtra({
-      from_address_id: h.from_address_id || "", from_address_custom: h.from_address_custom || "",
+      from_address_id: h.from_address_id || "", from_address_custom: h.from_address_custom || (BRANCH_DATA[branch] ? `${BRANCH_DATA[branch].address} | GSTIN: ${BRANCH_DATA[branch].gstin}` : ""),
       client_company: h.client_company || "", client_address1: h.client_address1 || "",
       client_address2: h.client_address2 || "", client_city: h.client_city || "",
       client_state: h.client_state || "", client_pincode: h.client_pincode || "", client_country: h.client_country || "India",
@@ -189,7 +190,7 @@ const EstimateInvoice = () => {
       terms_separate_orders: h.terms_separate_orders ? JSON.parse(h.terms_separate_orders) : { material: false, installation: false, usd: false, boq: false },
       terms_payment: h.terms_payment || "", terms_payment_custom: h.terms_payment_custom || "",
       terms_warranty: h.terms_warranty || "",
-      supplier_branch: h.supplier_branch || "Chennai",
+      supplier_branch: branch,
     });
     setEditId(id);
     setOpen(true);
@@ -367,7 +368,7 @@ const EstimateInvoice = () => {
             <Search size={18} className="text-gray-500" />
             <input type="text" placeholder="Search by customer..." className="outline-none text-sm w-40 bg-transparent" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
           </div>
-          <div className="flex items-center gap-2 mt-2">
+          {/* <div className="flex items-center gap-2 mt-2">
             <button onClick={async () => {
               const id = viewId || selectedId;
               if (!id) return alert("Select an invoice first");
@@ -386,7 +387,7 @@ const EstimateInvoice = () => {
             <button onClick={openMailModal} title="Send Email" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Mail size={18} /></button>
             <button onClick={() => { if (!selectedId) return alert("Select an item"); handleEdit(selectedId); }} title="Edit" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Edit2 size={18} /></button>
             <button onClick={handleDelete} title="Delete" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Trash2 size={18} className="text-red-500" /></button>
-          </div>
+          </div> */}
           <div className="mt-2">
             <button onClick={() => { resetForm(); setOpen(true); }} className="bg-[#FF3355] text-white w-12 h-12 rounded-full flex justify-center items-center shadow-lg hover:bg-[#e62848] transition"><Plus size={24} /></button>
           </div>
@@ -468,6 +469,7 @@ const EstimateInvoice = () => {
                     <option key={b.value} value={b.value}>{b.label} ({b.state})</option>
                   ))}
                 </select>
+                {/* 
                 {extra.supplier_branch && BRANCH_DATA[extra.supplier_branch] && (
                   <div className="mt-1 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800">
                     <span className="font-bold">{extra.supplier_branch}</span>
@@ -498,9 +500,11 @@ const EstimateInvoice = () => {
                     ))}
                   </div>
                 )}
+                */}
               </div>
             </div>
 
+            {/* 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-bold text-gray-500 uppercase">Office Address</label>
@@ -526,11 +530,6 @@ const EstimateInvoice = () => {
                   ))}
                   <option value="ADD_NEW">+ Add New Custom Address</option>
                 </select>
-                {extra.from_address_custom && (
-                  <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800 flex-wrap mt-1">
-                    <MapPin size={12} /> <span>{extra.from_address_custom}</span>
-                  </div>
-                )}
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-bold text-gray-500 uppercase">Custom Address (Optional)</label>
@@ -538,6 +537,13 @@ const EstimateInvoice = () => {
                   placeholder="Enter custom address..." className="border rounded-lg px-3 py-2 outline-none text-sm min-h-[70px]" />
               </div>
             </div>
+            */}
+
+            {extra.from_address_custom && (
+              <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800 flex-wrap mt-2">
+                <MapPin size={12} /> <span>{extra.from_address_custom}</span>
+              </div>
+            )}
 
             {/* Redesigned Bank Details Section inside Company Profile */}
             <div className="mt-2 p-5 bg-[#f8fafc] border border-slate-200 rounded-2xl shadow-sm">
@@ -664,15 +670,17 @@ const EstimateInvoice = () => {
 
             <SectionTitle>Quote Items</SectionTitle>
             <div className="flex flex-col gap-1 mb-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase">Description</label>
                   <textarea value={descInput} onChange={e => setDescInput(e.target.value)} placeholder="e.g. Laptop, specs..." className="w-full border rounded-lg px-3 py-2 outline-none min-h-[60px] text-sm" />
                 </div>
+                {/* 
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase">Brand / Model</label>
                   <textarea value={brandInput} onChange={e => setBrandInput(e.target.value)} placeholder="e.g. Dell, Cisco..." className="w-full border rounded-lg px-3 py-2 outline-none min-h-[60px] text-sm" />
                 </div>
+                */}
               </div>
               <div className="flex gap-2 items-end">
                 <div className="flex-1" />
@@ -809,7 +817,19 @@ const EstimateInvoice = () => {
                   ))}
                 </div>
                 {extra.terms_payment === "Custom" && (
-                  <input type="text" value={extra.terms_payment_custom} onChange={e => setExtra(ex => ({ ...ex, terms_payment_custom: e.target.value }))} placeholder="Enter custom payment terms..." className="mt-2 border rounded-lg px-3 py-2 outline-none text-sm w-full bg-white" />
+                  <div className="flex items-center gap-2 mt-2">
+                    <input 
+                      type="number" 
+                      value={extra.terms_payment_custom ? extra.terms_payment_custom.replace(" Days", "") : ""} 
+                      onChange={e => {
+                        const val = e.target.value;
+                        setExtra(ex => ({ ...ex, terms_payment_custom: val ? `${val} Days` : "" }));
+                      }} 
+                      placeholder="Enter number of days..." 
+                      className="border rounded-lg px-3 py-2 outline-none text-sm w-48 bg-white" 
+                    />
+                    <span className="text-sm text-gray-600 font-medium">Days</span>
+                  </div>
                 )}
               </div>
 

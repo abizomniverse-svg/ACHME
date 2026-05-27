@@ -305,6 +305,132 @@ const DetailModal = ({ call, onClose, formatCurrency }) => {
   );
 };
 
+const SessionLogsModal = ({ sessionId, callsList, onClose, formatCurrency }) => {
+  const sessionCalls = React.useMemo(() => {
+    return callsList
+      .filter(c => c.session_id === sessionId)
+      .sort((a, b) => (a.call_sequence || 1) - (b.call_sequence || 1));
+  }, [sessionId, callsList]);
+
+  if (!sessionId) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/55 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl max-h-[90vh] overflow-y-auto border border-border animate-scale-in" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-border px-6 py-4 flex justify-between items-center z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-primary/10">
+              <Zap size={18} className="text-primary" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold font-display text-foreground">Session Service Call Logs</h2>
+              <p className="text-xs font-mono text-muted-foreground">Session ID: {sessionId}</p>
+            </div>
+          </div>
+          <X className="cursor-pointer hover:text-destructive transition-colors text-muted-foreground" onClick={onClose} />
+        </div>
+
+        <div className="p-6 space-y-6">
+          {sessionCalls.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">No calls found under this session.</div>
+          ) : (
+            <div className="space-y-4">
+              {sessionCalls.map((c, idx) => {
+                const sc = STATUS_COLORS[c.status] || STATUS_COLORS.Pending;
+                const pc = PRIORITY_COLORS[c.priority] || PRIORITY_COLORS.Medium;
+                const psc = PAYMENT_STATUS_COLORS[c.payment_status] || PAYMENT_STATUS_COLORS.Pending;
+                const totalExpenses = (parseFloat(c.petrol_charges) || 0) + (parseFloat(c.spare_parts_price) || 0) + (parseFloat(c.labour_charges) || 0);
+
+                return (
+                  <div key={c.id} className="border border-border rounded-xl p-4 bg-muted/20 hover:border-primary/20 transition-all shadow-sm">
+                    <div className="flex flex-wrap justify-between items-center gap-2 pb-3 mb-3 border-b border-border">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-xs font-bold bg-primary/10 text-primary">
+                          Call #{c.call_sequence || (idx + 1)}
+                        </span>
+                        <span className="text-xs text-muted-foreground font-mono">ID: {c.call_id || `#${c.id}`}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge bg={sc.bg} text={sc.text} border={sc.border}>{c.status || "Pending"}</Badge>
+                        <Badge bg={pc.bg} text={pc.text} border={pc.border}>{c.priority || "Medium"}</Badge>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                      <div>
+                        <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Date</p>
+                        <p className="font-semibold text-foreground mt-0.5 flex items-center gap-1">
+                          <Calendar size={12} className="text-primary" /> {c.report_date || c.created_at?.split("T")[0] || "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Engineer Assigned</p>
+                        <p className="font-semibold text-foreground mt-0.5 flex items-center gap-1">
+                          <User size={12} className="text-primary" /> {c.engineer || c.staff_name || "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Time & Duration</p>
+                        <p className="font-semibold text-foreground mt-0.5 flex items-center gap-1">
+                          <Clock size={12} className="text-primary" /> 
+                          {c.start_time && c.end_time ? `${c.start_time.split(" ")[1] || c.start_time} - ${c.end_time.split(" ")[1] || c.end_time} (${c.actual_duration || 0}m)` : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Pay Status</p>
+                        <p className="font-semibold text-foreground mt-0.5 flex items-center gap-1">
+                          <CreditCard size={12} className="text-primary" /> {c.payment_status || "—"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-3 border-t border-dashed border-border text-xs">
+                      <div>
+                        <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Call Details</p>
+                        <p className="text-muted-foreground mt-1 text-sm bg-white p-2 rounded border border-border">
+                          {c.call_details || c.complaint || c.description || "—"}
+                        </p>
+                      </div>
+                      <div className="flex flex-col justify-between">
+                        <div>
+                          <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Expenses Breakdown</p>
+                          <div className="grid grid-cols-3 gap-2 mt-1 text-[10px] text-muted-foreground">
+                            <div>Petrol: {formatCurrency(c.petrol_charges)}</div>
+                            <div>Spare Parts: {formatCurrency(c.spare_parts_price)}</div>
+                            <div>Labour: {formatCurrency(c.labour_charges)}</div>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex justify-between items-center p-2 rounded bg-white border border-border">
+                          <div>
+                            <span className="text-[10px] font-bold text-muted-foreground block">TOTAL EXPENSES</span>
+                            <span className="font-bold text-sm text-foreground">{formatCurrency(totalExpenses)}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] font-bold text-muted-foreground block">PAY (INVOICE VALUE)</span>
+                            <span className="font-bold text-sm text-accent">{formatCurrency(c.invoice_value)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 bg-white border-t border-border px-6 py-4 flex justify-between items-center">
+          <div className="text-xs text-muted-foreground">
+            Total Session Calls: <span className="font-bold text-foreground">{sessionCalls.length}</span> | 
+            Total Session Revenue: <span className="font-bold text-accent">{formatCurrency(sessionCalls.reduce((sum, c) => sum + (parseFloat(c.invoice_value) || 0), 0))}</span>
+          </div>
+          <button onClick={onClose} className="px-6 py-2.5 border border-border rounded-lg text-sm font-semibold text-muted-foreground hover:bg-muted/50 transition-colors">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const CallReport = () => {
   const userRole = getUserRole();
   const canEditDelete = userRole === "admin" || userRole === "subadmin";
@@ -322,12 +448,16 @@ const CallReport = () => {
   const [isEdit, setIsEdit] = useState(false);
   const [editId, setEditId] = useState(null);
   const [detailCall, setDetailCall] = useState(null);
+  const [sessionLogsModalOpen, setSessionLogsModalOpen] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState(null);
+  const [perfEngineerFilter, setPerfEngineerFilter] = useState("All");
 
-   const [basicForm, setBasicForm] = useState({
-     customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
-     invoice_value: "", priority: "", call_referrer: "", status: "", payment_type: "", payment_status: "",
-     gst_number: "", company_name: "", contract_title: "",
-   });
+  const [basicForm, setBasicForm] = useState({
+    customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
+    invoice_value: "", priority: "", call_referrer: "", status: "Pending", payment_type: "", payment_status: "Pending",
+    gst_number: "", company_name: "", contract_title: "",
+    session_id: "", call_sequence: 1
+  });
 
   const [basicContractSearchResults, setBasicContractSearchResults] = useState([]);
   const [basicContractLoading, setBasicContractLoading] = useState(false);
@@ -337,12 +467,13 @@ const CallReport = () => {
     customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", call_details: "",
     priority: "", call_referrer: "", status: "", call_type: "",
     payment_type: "", invoice_value: "", payment_status: "", duration: "", contract_title: "",
+    gst_number: "", company_name: "",
   });
 
   const [step2Form, setStep2Form] = useState({
     engineer: "", start_time: "", end_time: "", km: "",
     petrol_charges: "", spare_parts_price: "", labour_charges: "", remarks: "",
-    status: "",
+    status: "", invoice_value: "",
   });
 
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
@@ -555,11 +686,12 @@ const CallReport = () => {
       customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", call_details: "",
       priority: "", call_referrer: "", status: "", call_type: "",
       payment_type: "", invoice_value: "", payment_status: "", duration: "", contract_title: "",
+      gst_number: "", company_name: "",
     });
     setStep2Form({
       engineer: "", start_time: "", end_time: "", km: "",
       petrol_charges: "", spare_parts_price: "", labour_charges: "", remarks: "",
-      status: "",
+      status: "", invoice_value: "",
     });
     setIsEdit(false); setEditId(null);
     setSelectedContract(null);
@@ -588,6 +720,8 @@ const CallReport = () => {
       payment_status: call.payment_status || "",
       contract_title: call.contract_title || "",
       duration: call.duration_limit ? (call.duration_limit == 60 ? "1hr" : call.duration_limit == 90 ? "1.5hr" : call.duration_limit == 120 ? "2hr" : "") : "",
+      gst_number: call.gst_number || "",
+      company_name: call.company_name || "",
     });
     setStep2Form({
       engineer: call.engineer || call.staff_name || "",
@@ -599,6 +733,7 @@ const CallReport = () => {
       labour_charges: call.labour_charges || "",
       remarks: call.remarks || "",
       status: call.status || "",
+      invoice_value: call.invoice_value || "",
     });
     setEditId(call.id);
     setIsEdit(true);
@@ -617,6 +752,7 @@ const CallReport = () => {
       labour_charges: call.labour_charges || "",
       remarks: call.remarks || "",
       status: call.status || "Pending",
+      invoice_value: call.invoice_value || "",
     });
     setStep2ModalOpen(true);
   };
@@ -624,7 +760,17 @@ const CallReport = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.customer.trim()) return alert("Customer name is required");
+    if (!form.mobile_number?.trim()) return alert("Mobile number is required");
+    if (!form.email?.trim()) return alert("Email is required");
+    if (!form.location_city?.trim()) return alert("Location/City is required");
+    if (!form.call_type) return alert("Call type is required");
+    if (!form.call_details?.trim()) return alert("Call details are required");
+    if (!form.priority) return alert("Priority is required");
+    if (!form.call_referrer) return alert("Call referrer is required");
     if (!form.status) return alert("Status is required");
+    if (!form.payment_type) return alert("Payment type is required");
+    if (form.invoice_value === "" || isNaN(parseFloat(form.invoice_value))) return alert("Invoice value is required");
+    if (!form.payment_status) return alert("Payment status is required");
 
     try {
       const payload = {
@@ -637,7 +783,8 @@ const CallReport = () => {
         await axios.put(`${API}/api/call-reports/${editId}`, payload, getAuthConfig());
       } else {
         payload.report_date = new Date().toISOString().split("T")[0];
-        payload.session_id = `SES-${Date.now()}`;
+        payload.session_id = form.session_id || `SES-${Date.now()}`;
+        payload.call_sequence = form.call_sequence || 1;
         await axios.post(`${API}/api/call-reports`, payload, getAuthConfig());
       }
       setModalOpen(false); resetForm(); fetchCalls();
@@ -660,6 +807,7 @@ const CallReport = () => {
         labour_charges: step2Form.labour_charges,
         remarks: step2Form.remarks,
         status: step2Form.status,
+        invoice_value: parseFloat(step2Form.invoice_value) || 0,
       };
       await axios.put(`${API}/api/call-reports/${step2CallId}`, payload, getAuthConfig());
       setStep2ModalOpen(false);
@@ -675,10 +823,76 @@ const CallReport = () => {
 
   const downloadCSV = () => {
     if (!filteredCalls.length) return alert("No data to export");
-    const headers = ["Call ID", "Customer", "Mobile", "Location", "Call Details", "Priority", "Engineer", "Status", "Call Type", "Start Time", "End Time", "Duration (min)", "KM", "Petrol", "Spare Parts", "Labour", "Total", "Payment Type", "Invoice Value", "Payment Status", "Remarks"];
+    const headers = [
+      "Call ID",
+      "Session ID",
+      "Call Sequence",
+      "Customer Name",
+      "Company Name",
+      "Mobile Number",
+      "Email",
+      "Location/City",
+      "GST Number",
+      "Call Type",
+      "Contract Title",
+      "Call Details/Complaint",
+      "Priority",
+      "Call Referrer",
+      "Engineer Assigned",
+      "Start Time",
+      "End Time",
+      "Duration Limit (min)",
+      "Actual Duration (min)",
+      "Duration Exceeded",
+      "Kilometers (KM)",
+      "Petrol Charges (₹)",
+      "Spare Parts Price (₹)",
+      "Labour Charges (₹)",
+      "Total Expenses (₹)",
+      "Payment Type",
+      "Invoice Value (₹)",
+      "Payment Status",
+      "Call Status",
+      "Completion Status",
+      "Remarks",
+      "Created At"
+    ];
     const rows = filteredCalls.map(c => {
       const dur = c.actual_duration || 0;
-      return [c.call_id, c.customer || c.client_name, c.mobile_number || c.phone, c.location_city || c.location, c.call_details || c.complaint, c.priority, c.engineer || c.staff_name, c.status, c.call_type, c.start_time, c.end_time, dur, c.km, c.petrol_charges, c.spare_parts_price, c.labour_charges, c.total_expenses, c.payment_type, c.invoice_value, c.payment_status, c.remarks];
+      return [
+        c.call_id || `#${c.id}`,
+        c.session_id || "—",
+        c.call_sequence || 1,
+        c.customer || c.client_name || c.customer_name || "—",
+        c.company_name || "—",
+        c.mobile_number || c.phone || "—",
+        c.email || "—",
+        c.location_city || c.location || "—",
+        c.gst_number || "—",
+        c.call_type || "—",
+        c.contract_title || "—",
+        c.call_details || c.complaint || c.description || "—",
+        c.priority || "Medium",
+        c.call_referrer || "—",
+        c.engineer || c.staff_name || "—",
+        c.start_time || "—",
+        c.end_time || "—",
+        c.duration_limit || c.assigned_time || 30,
+        dur,
+        c.is_exceeded ? "Yes" : "No",
+        c.km !== "" && c.km != null ? c.km : "—",
+        c.petrol_charges || 0,
+        c.spare_parts_price || 0,
+        c.labour_charges || 0,
+        c.total_expenses || 0,
+        c.payment_type || "—",
+        c.invoice_value || 0,
+        c.payment_status || "—",
+        c.status || "Pending",
+        c.step2_completed ? "Complete" : "Basic",
+        c.remarks || "—",
+        c.created_at || "—"
+      ];
     });
     const csv = [headers, ...rows].map(r => r.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -715,13 +929,13 @@ const CallReport = () => {
 
   const busyEngineers = useMemo(() => {
     return calls
-      .filter(c => c.status === "Live" && (c.engineer || c.staff_name))
+      .filter(c => ["Live", "Pending", "Observation"].includes(c.status) && (c.engineer || c.staff_name))
       .map(c => c.engineer || c.staff_name);
   }, [calls]);
 
   const getEngineerStatus = (engineerName) => {
     const isBusy = busyEngineers.includes(engineerName);
-    const currentCall = calls.find(c => (c.engineer || c.staff_name) === engineerName && c.status === "Live");
+    const currentCall = calls.find(c => (c.engineer || c.staff_name) === engineerName && ["Live", "Pending", "Observation"].includes(c.status));
     return { isBusy, customerName: currentCall ? (currentCall.customer || currentCall.client_name) : null };
   };
 
@@ -729,15 +943,114 @@ const CallReport = () => {
     return ENGINEERS.filter(e => !busyEngineers.includes(e.value));
   }, [busyEngineers]);
 
-   const openBasicForm = () => {
-     setBasicForm({ customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
-       invoice_value: "", priority: "", call_referrer: "", status: "", payment_type: "", payment_status: "", gst_number: "", company_name: "", contract_title: "" });
-     setSelectedBasicContract(null);
-     setBasicContractSearchResults([]);
-     setModalOpen(true);
-     setIsEdit(false);
-     setEditId(null);
-   };
+  const openFollowUpCall = async (c) => {
+    const sessionCalls = calls.filter(call => call.session_id === c.session_id);
+    const maxSeq = sessionCalls.reduce((max, call) => Math.max(max, call.call_sequence || 1), 0);
+    const nextSeq = maxSeq + 1;
+
+    try {
+      const payload = {
+        customer: c.customer || c.client_name || "",
+        customer_id: c.customer_id || null,
+        mobile_number: c.mobile_number || c.phone || "",
+        email: c.email || "",
+        location_city: c.location_city || c.location || "",
+        call_type: c.call_type || "AMC",
+        contract_title: c.contract_title || "",
+        call_details: `Follow-up Call #${nextSeq} under session ${c.session_id}`,
+        priority: c.priority || "Medium",
+        call_referrer: c.call_referrer || "",
+        status: "Pending",
+        payment_type: c.payment_type || "",
+        invoice_value: 0,
+        payment_status: "Pending",
+        duration_limit: c.duration_limit || 60,
+        assigned_time: c.assigned_time || 60,
+        service_type: (c.call_type === "AMC" || c.call_type === "ALC") ? c.call_type : "None",
+        report_date: new Date().toISOString().split("T")[0],
+        session_id: c.session_id,
+        call_sequence: nextSeq
+      };
+
+      const res = await axios.post(`${API}/api/call-reports`, payload, getAuthConfig());
+      const newCallId = res.data.id;
+
+      // Refresh calls list in the background
+      await fetchCalls();
+
+      // Open the Step 2 complete modal directly for this newly created follow-up call!
+      setStep2CallId(newCallId);
+      setStep2Form({
+        engineer: "",
+        start_time: "",
+        end_time: "",
+        km: "",
+        petrol_charges: "",
+        spare_parts_price: "",
+        labour_charges: "",
+        remarks: "",
+        status: "Pending",
+      });
+      setStep2ModalOpen(true);
+    } catch (err) {
+      alert("Error creating follow-up call: " + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const openBasicForm = () => {
+    setBasicForm({
+      customer: "", customer_id: "", mobile_number: "", email: "", location_city: "", duration: "", call_type: "", call_details: "",
+      invoice_value: "", priority: "", call_referrer: "", status: "Pending", payment_type: "", payment_status: "Pending", gst_number: "", company_name: "", contract_title: "",
+      session_id: `SES-${Date.now()}`,
+      call_sequence: 1
+    });
+    setSelectedBasicContract(null);
+    setBasicContractSearchResults([]);
+    setModalOpen(true);
+    setIsEdit(false);
+    setEditId(null);
+  };
+
+  const handleInlineUpdate = async (callId, updatedFields) => {
+    try {
+      const res = await axios.get(`${API}/api/call-reports/${callId}`, getAuthConfig());
+      const currentCall = res.data;
+      if (!currentCall) return;
+
+      const payload = {
+        customer: currentCall.customer_name || currentCall.client_name || "",
+        customer_id: currentCall.customer_id || null,
+        mobile_number: currentCall.mobile_number || currentCall.phone || "",
+        email: currentCall.email || "",
+        location_city: currentCall.location_city || currentCall.location || "",
+        call_details: currentCall.call_details || currentCall.complaint || currentCall.description || "",
+        priority: currentCall.priority || "Medium",
+        engineer: currentCall.engineer || currentCall.staff_name || "",
+        call_referrer: currentCall.call_referrer || "",
+        status: currentCall.status || "Pending",
+        call_type: currentCall.call_type || "AMC",
+        payment_type: currentCall.payment_type || "",
+        invoice_value: parseFloat(currentCall.invoice_value) || 0,
+        payment_status: currentCall.payment_status || "",
+        duration_limit: currentCall.duration_limit || currentCall.assigned_time || 30,
+        assigned_time: currentCall.duration_limit || currentCall.assigned_time || 30,
+        start_time: currentCall.start_time || null,
+        end_time: currentCall.end_time || null,
+        km: currentCall.km !== "" && currentCall.km != null ? parseFloat(currentCall.km) : null,
+        petrol_charges: parseFloat(currentCall.petrol_charges) || 0,
+        spare_parts_price: parseFloat(currentCall.spare_parts_price) || 0,
+        labour_charges: parseFloat(currentCall.labour_charges) || 0,
+        remarks: currentCall.remarks || "",
+        step2_completed: currentCall.step2_completed || 0,
+        ...updatedFields
+      };
+
+      await axios.put(`${API}/api/call-reports/${callId}`, payload, getAuthConfig());
+      fetchCalls();
+    } catch (err) {
+      alert("Error updating: " + (err.response?.data?.error || err.message));
+    }
+  };
 
   const handleBasicContractSelect = (contractTitle) => {
     const contract = basicContractSearchResults.find(c => c.value === contractTitle);
@@ -760,13 +1073,16 @@ const CallReport = () => {
   const handleBasicSubmit = async (e) => {
     e.preventDefault();
     if (!basicForm.customer.trim()) return alert("Customer name is required");
-    if (!basicForm.duration) return alert("Duration is required");
+    if (!basicForm.mobile_number?.trim()) return alert("Mobile number is required");
+    if (!basicForm.email?.trim()) return alert("Email is required");
+    if (!basicForm.location_city?.trim()) return alert("Location/City is required");
     if (!basicForm.call_type) return alert("Call type is required");
+    if (!basicForm.duration) return alert("Duration is required");
     if (!basicForm.priority) return alert("Priority is required");
     if (!basicForm.call_referrer) return alert("Call referrer is required");
+    if (!basicForm.call_details?.trim()) return alert("Call details are required");
     if (!basicForm.status) return alert("Status is required");
     if (!basicForm.payment_type) return alert("Payment type is required");
-    if (!basicForm.invoice_value) return alert("Invoice value is required");
     if (!basicForm.payment_status) return alert("Payment status is required");
 
     try {
@@ -790,7 +1106,10 @@ const CallReport = () => {
         assigned_time: durationMap[basicForm.duration] || 60,
         service_type: (basicForm.call_type === "AMC" || basicForm.call_type === "ALC") ? basicForm.call_type : "None",
         report_date: new Date().toISOString().split("T")[0],
-        session_id: `SES-${Date.now()}`,
+        session_id: basicForm.session_id || `SES-${Date.now()}`,
+        call_sequence: basicForm.call_sequence || 1,
+        gst_number: basicForm.gst_number || "",
+        company_name: basicForm.company_name || "",
       };
       await axios.post(`${API}/api/call-reports`, payload, getAuthConfig());
       setModalOpen(false);
@@ -819,6 +1138,33 @@ const CallReport = () => {
       };
     }).sort((a, b) => b.callsPerHour - a.callsPerHour);
   }, [calls]);
+
+  const filteredPerformanceData = useMemo(() => {
+    if (perfEngineerFilter === "All") return performanceData;
+    return performanceData.filter(p => p.name === perfEngineerFilter);
+  }, [performanceData, perfEngineerFilter]);
+
+  const downloadPerformanceCSV = () => {
+    if (!filteredPerformanceData.length) return alert("No performance data to export");
+    const headers = ["Engineer Name", "Total Calls Completed", "Total KM Driven", "Total Petrol Cost (₹)", "Total Time Spent (Hours)", "Total Revenue Generated (₹)", "Calls per Hour (Efficiency)"];
+    const rows = filteredPerformanceData.map(p => [
+      p.name,
+      p.totalCalls,
+      p.totalKM,
+      p.totalPetrol,
+      p.totalHours,
+      p.totalRevenue,
+      p.callsPerHour
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Engineer_Performance_Report_${perfEngineerFilter.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const TABS = [
     { id: "calls", label: "Calls" },
@@ -932,15 +1278,16 @@ const CallReport = () => {
                     <th className="px-4 py-3 text-center w-[90px]">Completion</th>
                     <th className="px-4 py-3 text-center w-[80px]">Duration</th>
                     <th className="px-4 py-3 text-center w-[90px]">Total</th>
+                    <th className="px-4 py-3 text-center w-[90px]">Pay</th>
                     <th className="px-4 py-3 text-center w-[100px]">Pay Status</th>
                     <th className="px-4 py-3 text-center w-[140px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan="10" className="text-center py-12 text-muted-foreground">Loading...</td></tr>
+                    <tr><td colSpan="11" className="text-center py-12 text-muted-foreground">Loading...</td></tr>
                   ) : filteredCalls.length === 0 ? (
-                    <tr><td colSpan="10" className="text-center py-12 text-muted-foreground">No call records found</td></tr>
+                    <tr><td colSpan="11" className="text-center py-12 text-muted-foreground">No call records found</td></tr>
                   ) : (
                     filteredCalls.map((c) => {
                       const sc = STATUS_COLORS[c.status] || STATUS_COLORS.Pending;
@@ -949,21 +1296,54 @@ const CallReport = () => {
                       const dur = c.actual_duration || 0;
                       const isComplete = c.step2_completed;
                       return (
-                        <tr key={c.id} className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer" onDoubleClick={() => openStep2Form(c)}>
-                          <td className="px-4 py-3 font-mono font-bold text-xs text-primary">{c.call_id || `#${c.id}`}</td>
+                        <tr key={c.id} className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer" onDoubleClick={() => {
+                          setSelectedSessionId(c.session_id);
+                          setSessionLogsModalOpen(true);
+                        }}>
+                          <td className="px-4 py-3 font-mono font-bold text-xs text-primary">
+                            <div>{c.call_id || `#${c.id}`}</div>
+                            <div className="mt-1">
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                Call #{c.call_sequence || 1}
+                              </span>
+                            </div>
+                          </td>
                           <td className="px-4 py-3">
                             <p className="font-semibold text-sm truncate text-foreground">{c.customer || c.client_name || "—"}</p>
                             <p className="text-[10px] truncate text-muted-foreground">{c.location_city || c.location || ""}</p>
                           </td>
                           <td className="px-4 py-3 text-xs truncate text-muted-foreground">{c.engineer || c.staff_name || "—"}</td>
                           <td className="px-4 py-3 text-center">
-                            <Badge bg={sc.bg} text={sc.text} border={sc.border}>{c.status || "—"}</Badge>
+                            <select
+                              value={c.status || "Pending"}
+                              onChange={(e) => handleInlineUpdate(c.id, { status: e.target.value })}
+                              className="px-2 py-1 text-[11px] font-bold rounded-full border outline-none cursor-pointer shadow-sm transition-all focus:ring-1 focus:ring-primary"
+                              style={{
+                                background: sc.bg,
+                                color: sc.text,
+                                borderColor: sc.border,
+                              }}
+                            >
+                              {STATUS_OPTIONS.map(opt => (
+                                <option key={opt} value={opt} style={{ background: "#ffffff", color: "#1a1a1a" }}>{opt}</option>
+                              ))}
+                            </select>
                           </td>
                           <td className="px-4 py-3 text-xs text-center text-muted-foreground">{c.call_type || "—"}</td>
                           <td className="px-4 py-3 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isComplete ? "bg-accent/10 text-accent" : "bg-primary/10 text-primary"}`}>
-                              {isComplete ? "Complete" : "Basic"}
-                            </span>
+                            <select
+                              value={isComplete ? "Complete" : "Basic"}
+                              onChange={(e) => handleInlineUpdate(c.id, { step2_completed: e.target.value === "Complete" ? 1 : 0 })}
+                              className="px-2 py-1 text-[11px] font-bold rounded-full border outline-none cursor-pointer shadow-sm transition-all focus:ring-1 focus:ring-primary"
+                              style={{
+                                background: isComplete ? "hsl(var(--accent) / 0.1)" : "hsl(var(--primary) / 0.1)",
+                                color: isComplete ? "hsl(var(--accent))" : "hsl(var(--primary))",
+                                borderColor: isComplete ? "hsl(var(--accent) / 0.2)" : "hsl(var(--primary) / 0.2)",
+                              }}
+                            >
+                              <option value="Basic" style={{ background: "#ffffff", color: "#1a1a1a" }}>Basic</option>
+                              <option value="Complete" style={{ background: "#ffffff", color: "#1a1a1a" }}>Complete</option>
+                            </select>
                           </td>
                           <td className="px-4 py-3 text-center">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.is_exceeded ? "bg-destructive/10 text-destructive" : "bg-accent/10 text-accent"}`}>
@@ -971,15 +1351,30 @@ const CallReport = () => {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.total_expenses ? formatCurrency(c.total_expenses) : "—"}</td>
+                          <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.invoice_value ? formatCurrency(c.invoice_value) : "—"}</td>
                           <td className="px-4 py-3 text-center">
-                            <Badge bg={psc.bg} text={psc.text} border={psc.border}>{c.payment_status || "—"}</Badge>
+                            <select
+                              value={c.payment_status || "Pending"}
+                              onChange={(e) => handleInlineUpdate(c.id, { payment_status: e.target.value })}
+                              className="px-2 py-1 text-[11px] font-bold rounded-full border outline-none cursor-pointer shadow-sm transition-all focus:ring-1 focus:ring-primary"
+                              style={{
+                                background: psc.bg,
+                                color: psc.text,
+                                borderColor: psc.border,
+                              }}
+                            >
+                              {PAYMENT_STATUS_OPTIONS.map(opt => (
+                                <option key={opt} value={opt} style={{ background: "#ffffff", color: "#1a1a1a" }}>{opt}</option>
+                              ))}
+                            </select>
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex gap-1 justify-center">
-                              <button onClick={() => setDetailCall(c)} className="p-1.5 rounded hover:bg-primary/10 transition-colors" title="View Details"><Eye size={14} className="text-primary" /></button>
-                              {!isComplete && <button onClick={() => openStep2Form(c)} className="px-2 py-1 rounded text-[10px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors" title="Complete Details">Complete</button>}
-                              <button onClick={() => openEditModal(c)} className="p-1.5 rounded hover:bg-accent/10 transition-colors" title="Edit"><Edit size={14} className="text-accent" /></button>
-                              {canEditDelete && <button onClick={() => deleteCall(c.id)} className="p-1.5 rounded hover:bg-destructive/10 transition-colors" title="Delete"><Trash2 size={14} className="text-destructive" /></button>}
+                            <div className="flex gap-1 justify-center items-center">
+                              <button onClick={() => setDetailCall(c)} className="p-1 rounded hover:bg-primary/10 transition-colors" title="View Details"><Eye size={14} className="text-primary" /></button>
+                              <button onClick={() => openFollowUpCall(c)} className="p-1 rounded hover:bg-purple-100 transition-colors text-purple-600" title="Add follow-up call to this session"><Plus size={14} /></button>
+                              {!isComplete && <button onClick={() => openStep2Form(c)} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors" title="Complete Details">Complete</button>}
+                              <button onClick={() => openEditModal(c)} className="p-1 rounded hover:bg-accent/10 transition-colors" title="Edit"><Edit size={14} className="text-accent" /></button>
+                              {canEditDelete && <button onClick={() => deleteCall(c.id)} className="p-1 rounded hover:bg-destructive/10 transition-colors" title="Delete"><Trash2 size={14} className="text-destructive" /></button>}
                             </div>
                           </td>
                         </tr>
@@ -1019,7 +1414,7 @@ const CallReport = () => {
                           background: isBusy ? "hsl(var(--destructive) / 0.1)" : "hsl(var(--accent) / 0.1)",
                           color: isBusy ? "hsl(var(--destructive))" : "hsl(var(--accent))",
                         }}>
-                          {isBusy ? "On Call" : "Free"}
+                          {isBusy ? "On Call" : "Available"}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm" style={{ color: isBusy ? "hsl(var(--destructive))" : "hsl(var(--muted-foreground))" }}>
@@ -1036,12 +1431,35 @@ const CallReport = () => {
 
       {activeTab === "performance" && (
         <>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 p-4 rounded-xl border border-border bg-card">
+            <div className="flex items-center gap-2">
+              <Wrench size={16} className="text-primary" />
+              <span className="text-sm font-semibold text-foreground">Filter by Engineer:</span>
+              <select
+                value={perfEngineerFilter}
+                onChange={(e) => setPerfEngineerFilter(e.target.value)}
+                className="border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-white text-foreground hover:border-primary/30 transition-colors"
+              >
+                <option value="All">All Engineers</option>
+                {ENGINEERS.map(e => (
+                  <option key={e.value} value={e.label}>{e.label}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={downloadPerformanceCSV}
+              className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 bg-primary text-white hover:bg-primary/95 transition-colors shadow"
+            >
+              <Download size={14} /> Download Excel Report
+            </button>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             {[
-              { label: "Total Calls", value: performanceData.reduce((s, p) => s + p.totalCalls, 0), icon: Phone, color: "hsl(var(--primary))", bg: "hsl(var(--primary) / 0.1)" },
-              { label: "Total Revenue", value: formatCurrency(performanceData.reduce((s, p) => s + p.totalRevenue, 0)), icon: DollarSign, color: "hsl(var(--accent))", bg: "hsl(var(--accent) / 0.1)" },
-              { label: "Total KM", value: performanceData.reduce((s, p) => s + parseFloat(p.totalKM), 0).toFixed(1), icon: MapPin, color: "hsl(38 92% 50%)", bg: "hsl(38 92% 50% / 0.1)" },
-              { label: "Avg Calls/Hr", value: (performanceData.reduce((s, p) => s + p.callsPerHour, 0) / (performanceData.length || 1)).toFixed(2), icon: TrendingUp, color: "hsl(271 81% 56%)", bg: "hsl(271 81% 56% / 0.1)" },
+              { label: "Total Calls", value: filteredPerformanceData.reduce((s, p) => s + p.totalCalls, 0), icon: Phone, color: "hsl(var(--primary))", bg: "hsl(var(--primary) / 0.1)" },
+              { label: "Total Revenue", value: formatCurrency(filteredPerformanceData.reduce((s, p) => s + p.totalRevenue, 0)), icon: DollarSign, color: "hsl(var(--accent))", bg: "hsl(var(--accent) / 0.1)" },
+              { label: "Total KM", value: filteredPerformanceData.reduce((s, p) => s + parseFloat(p.totalKM), 0).toFixed(1), icon: MapPin, color: "hsl(38 92% 50%)", bg: "hsl(38 92% 50% / 0.1)" },
+              { label: "Avg Calls/Hr", value: (filteredPerformanceData.reduce((s, p) => s + p.callsPerHour, 0) / (filteredPerformanceData.length || 1)).toFixed(2), icon: TrendingUp, color: "hsl(271 81% 56%)", bg: "hsl(271 81% 56% / 0.1)" },
             ].map((s, i) => (
               <div key={i} className="rounded-xl p-4 border border-border bg-card hover:border-primary/20 transition-colors">
                 <div className="flex items-center gap-3">
@@ -1064,7 +1482,7 @@ const CallReport = () => {
                 <h3 className="text-sm font-bold text-foreground">Calls per Engineer</h3>
               </div>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={performanceData}>
+                <BarChart data={filteredPerformanceData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="name" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} interval={0} angle={-45} textAnchor="end" height={80} />
                   <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
@@ -1080,7 +1498,7 @@ const CallReport = () => {
                 <h3 className="text-sm font-bold text-foreground">Revenue per Engineer (₹)</h3>
               </div>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={performanceData}>
+                <BarChart data={filteredPerformanceData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="name" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} interval={0} angle={-45} textAnchor="end" height={80} />
                   <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
@@ -1098,7 +1516,7 @@ const CallReport = () => {
                 <h3 className="text-sm font-bold text-foreground">Calls/Hour Performance Trend</h3>
               </div>
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={performanceData}>
+                <AreaChart data={filteredPerformanceData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="name" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} interval={0} angle={-45} textAnchor="end" height={80} />
                   <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
@@ -1116,7 +1534,7 @@ const CallReport = () => {
                 <h3 className="text-sm font-bold text-foreground">KM Driven per Engineer</h3>
               </div>
               <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={performanceData}>
+                <LineChart data={filteredPerformanceData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="name" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} interval={0} angle={-45} textAnchor="end" height={80} />
                   <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
@@ -1136,8 +1554,8 @@ const CallReport = () => {
               </div>
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
-                  <Pie data={performanceData.filter(p => p.totalPetrol > 0)} dataKey="totalPetrol" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                    {performanceData.filter(p => p.totalPetrol > 0).map((_, index) => (
+                  <Pie data={filteredPerformanceData.filter(p => p.totalPetrol > 0)} dataKey="totalPetrol" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                    {filteredPerformanceData.filter(p => p.totalPetrol > 0).map((_, index) => (
                       <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                     ))}
                   </Pie>
@@ -1152,7 +1570,7 @@ const CallReport = () => {
                 <h3 className="text-sm font-bold text-foreground">Time Spent (Hours)</h3>
               </div>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={performanceData}>
+                <BarChart data={filteredPerformanceData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="name" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} interval={0} angle={-45} textAnchor="end" height={80} />
                   <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
@@ -1168,7 +1586,7 @@ const CallReport = () => {
                 <h3 className="text-sm font-bold text-foreground">Engineer Efficiency Score</h3>
               </div>
               <ResponsiveContainer width="100%" height={300}>
-                <RadarChart data={performanceData.slice(0, 8)}>
+                <RadarChart data={filteredPerformanceData.slice(0, 8)}>
                   <PolarGrid stroke="hsl(var(--border))" />
                   <PolarAngleAxis dataKey="name" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} />
                   <PolarRadiusAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
@@ -1198,10 +1616,10 @@ const CallReport = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {performanceData.length === 0 ? (
+                  {filteredPerformanceData.length === 0 ? (
                     <tr><td colSpan="7" className="text-center py-12 text-muted-foreground">No performance data available</td></tr>
                   ) : (
-                    performanceData.map((p, idx) => (
+                    filteredPerformanceData.map((p, idx) => (
                       <tr key={p.name} className="border-b border-border hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 font-semibold text-foreground">
                           <span className="inline-flex items-center gap-2">
@@ -1236,6 +1654,18 @@ const CallReport = () => {
 
       {detailCall && <DetailModal call={detailCall} onClose={() => setDetailCall(null)} formatCurrency={formatCurrency} />}
 
+      {sessionLogsModalOpen && (
+        <SessionLogsModal
+          sessionId={selectedSessionId}
+          callsList={calls}
+          onClose={() => {
+            setSessionLogsModalOpen(false);
+            setSelectedSessionId(null);
+          }}
+          formatCurrency={formatCurrency}
+        />
+      )}
+
       {/* Step 1 - Basic Call Form */}
       {modalOpen && !isEdit && (
         <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto pt-4 pb-4 animate-fade-in" style={{ backgroundColor: "rgba(0, 0, 0, 0.3)", backdropFilter: "blur(4px)" }} onClick={() => { setModalOpen(false); }}>
@@ -1246,7 +1676,9 @@ const CallReport = () => {
                   <Plus size={18} style={{ color: "var(--color-primary, #5645d4)" }} />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold" style={{ fontFamily: "var(--font-display, Inter), sans-serif", color: "var(--color-ink, #1a1a1a)" }}>New Service Call</h2>
+                  <h2 className="text-lg font-semibold" style={{ fontFamily: "var(--font-display, Inter), sans-serif", color: "var(--color-ink, #1a1a1a)" }}>
+                    New Service Call (Call #{basicForm.call_sequence || 1})
+                  </h2>
                   <p className="text-xs" style={{ color: "var(--color-steel, #787671)" }}>Step 1: All fields required</p>
                 </div>
               </div>
@@ -1338,6 +1770,12 @@ const CallReport = () => {
                   <FormField label="Location/City" icon={MapPin} required>
                     <input type="text" value={basicForm.location_city} onChange={e => setBasicForm({ ...basicForm, location_city: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" required style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }} />
                   </FormField>
+                  <FormField label="Company Name" icon={FileText}>
+                    <input type="text" value={basicForm.company_name} onChange={e => setBasicForm({ ...basicForm, company_name: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }} />
+                  </FormField>
+                  <FormField label="GST Number" icon={FileText}>
+                    <input type="text" value={basicForm.gst_number} onChange={e => setBasicForm({ ...basicForm, gst_number: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }} />
+                  </FormField>
                 </div>
 
                 <SectionDivider icon={Tag} title="Call Information" />
@@ -1426,9 +1864,6 @@ const CallReport = () => {
                   <FormField label="Payment Type" icon={CreditCard} required>
                     <SearchableSelect options={PAYMENT_TYPE_OPTIONS} value={basicForm.payment_type} onChange={v => setBasicForm({ ...basicForm, payment_type: v })} placeholder="Select Payment Type" />
                   </FormField>
-                  <FormField label="Invoice Value (₹)" icon={DollarSign} required>
-                    <input type="number" value={basicForm.invoice_value} onChange={e => setBasicForm({ ...basicForm, invoice_value: e.target.value })} className={inputBase} placeholder="0.00" min="0" step="0.01" required style={{ backgroundColor: "var(--color-canvas, #ffffff)", color: "var(--color-ink, #1a1a1a)", border: "1px solid var(--color-hairline-strong, #c8c4be)", borderRadius: "var(--radius-md, 8px)" }} />
-                  </FormField>
                   <FormField label="Payment Status" icon={CheckCircle} required>
                     <SearchableSelect options={PAYMENT_STATUS_OPTIONS} value={basicForm.payment_status} onChange={v => setBasicForm({ ...basicForm, payment_status: v })} placeholder="Select Payment Status" />
                   </FormField>
@@ -1467,16 +1902,22 @@ const CallReport = () => {
                     <SearchableSelect options={customerSearchResults} value={form.customer} onChange={handleCustomerSelect} placeholder="Search customer..." onSearch={(q) => searchCustomers(q)} loading={customerLoading} />
                   </FormField>
                 </div>
-                <FormField label="Mobile Number" icon={PhoneIcon}>
-                  <input type="tel" value={form.mobile_number} onChange={e => setForm({ ...form, mobile_number: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" />
+                <FormField label="Mobile Number" icon={PhoneIcon} required>
+                  <input type="tel" value={form.mobile_number} onChange={e => setForm({ ...form, mobile_number: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" required />
                 </FormField>
-                <FormField label="Email" icon={Mail}>
-                  <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" />
+                <FormField label="Email" icon={Mail} required>
+                  <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" required />
                 </FormField>
-                <FormField label="Location/City" icon={MapPin}>
-                  <input type="text" value={form.location_city} onChange={e => setForm({ ...form, location_city: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" />
+                <FormField label="Location/City" icon={MapPin} required>
+                  <input type="text" value={form.location_city} onChange={e => setForm({ ...form, location_city: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" required />
                 </FormField>
-                <FormField label="Call Type" icon={Tag}>
+                <FormField label="Company Name" icon={FileText}>
+                  <input type="text" value={form.company_name} onChange={e => setForm({ ...form, company_name: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" />
+                </FormField>
+                <FormField label="GST Number" icon={FileText}>
+                  <input type="text" value={form.gst_number} onChange={e => setForm({ ...form, gst_number: e.target.value })} className={inputBase} placeholder="Auto-filled or manual" />
+                </FormField>
+                <FormField label="Call Type" icon={Tag} required>
                   <SearchableSelect options={CALL_TYPE_OPTIONS} value={form.call_type} onChange={handleCallTypeChange} placeholder="Select Call Type" />
                 </FormField>
               </div>
@@ -1489,17 +1930,17 @@ const CallReport = () => {
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="sm:col-span-2 lg:col-span-3">
-                  <FormField label="Call Details" icon={MessageSquare}>
-                    <textarea value={form.call_details} onChange={e => setForm({ ...form, call_details: e.target.value })} className={`${inputBase} resize-none`} placeholder="Describe the issue or service performed" rows={2} />
+                  <FormField label="Call Details" icon={MessageSquare} required>
+                    <textarea value={form.call_details} onChange={e => setForm({ ...form, call_details: e.target.value })} className={`${inputBase} resize-none`} placeholder="Describe the issue or service performed" rows={2} required />
                   </FormField>
                 </div>
-                <FormField label="Priority" icon={AlertTriangle}>
+                <FormField label="Priority" icon={AlertTriangle} required>
                   <SearchableSelect options={PRIORITY_OPTIONS} value={form.priority} onChange={v => setForm({ ...form, priority: v })} placeholder="Select Priority" />
                 </FormField>
                 <FormField label="Engineer" icon={User}>
                   <SearchableSelect options={ENGINEERS} value={form.engineer} onChange={v => setForm({ ...form, engineer: v })} placeholder="Select Engineer" />
                 </FormField>
-                <FormField label="Call Referrer" icon={Phone}>
+                <FormField label="Call Referrer" icon={Phone} required>
                   <SearchableSelect options={CALL_REFERRERS} value={form.call_referrer} onChange={v => setForm({ ...form, call_referrer: v })} placeholder="Select Referrer" />
                 </FormField>
                 <FormField label="Status" required icon={CheckCircle}>
@@ -1542,13 +1983,13 @@ const CallReport = () => {
                 <FormField label="Labour Charges (₹)">
                   <input type="number" value={form.labour_charges} onChange={e => setForm({ ...form, labour_charges: e.target.value })} className={inputBase} placeholder="0.00" min="0" step="0.01" />
                 </FormField>
-                <FormField label="Payment Type" icon={CreditCard}>
+                <FormField label="Payment Type" icon={CreditCard} required>
                   <SearchableSelect options={PAYMENT_TYPE_OPTIONS} value={form.payment_type} onChange={v => setForm({ ...form, payment_type: v })} placeholder="Select Payment Type" />
                 </FormField>
-                <FormField label="Invoice Value (₹)" icon={DollarSign}>
-                  <input type="number" value={form.invoice_value} onChange={e => setForm({ ...form, invoice_value: e.target.value })} className={inputBase} placeholder="0.00" min="0" step="0.01" />
+                <FormField label="Invoice Value (₹)" icon={DollarSign} required>
+                  <input type="number" value={form.invoice_value} onChange={e => setForm({ ...form, invoice_value: e.target.value })} className={inputBase} placeholder="0.00" min="0" step="0.01" required />
                 </FormField>
-                <FormField label="Payment Status" icon={CheckCircle}>
+                <FormField label="Payment Status" icon={CheckCircle} required>
                   <SearchableSelect options={PAYMENT_STATUS_OPTIONS} value={form.payment_status} onChange={v => setForm({ ...form, payment_status: v })} placeholder="Select Payment Status" />
                 </FormField>
               </div>
@@ -1657,8 +2098,8 @@ const CallReport = () => {
                 </FormField>
               </div>
 
-              <SectionDivider icon={DollarSign} title="Expenses" />
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <SectionDivider icon={DollarSign} title="Expenses & Billing" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <FormField label="Petrol (₹)">
                   <input type="number" value={step2Form.petrol_charges} onChange={e => setStep2Form({ ...step2Form, petrol_charges: e.target.value })} className={inputBase} placeholder="0.00" min="0" step="0.01" />
                 </FormField>
@@ -1667,6 +2108,9 @@ const CallReport = () => {
                 </FormField>
                 <FormField label="Labour Charges (₹)">
                   <input type="number" value={step2Form.labour_charges} onChange={e => setStep2Form({ ...step2Form, labour_charges: e.target.value })} className={inputBase} placeholder="0.00" min="0" step="0.01" />
+                </FormField>
+                <FormField label="Invoice Value (₹)" icon={DollarSign}>
+                  <input type="number" value={step2Form.invoice_value} onChange={e => setStep2Form({ ...step2Form, invoice_value: e.target.value })} className={inputBase} placeholder="0.00" min="0" step="0.01" />
                 </FormField>
               </div>
 

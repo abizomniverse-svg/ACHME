@@ -161,8 +161,8 @@ router.post("/", verifyToken, (req, res) => {
      start_time, end_time, assigned_time, actual_duration, is_exceeded, remarks,
      report_date, complaint, description, km, petrol_charges, spare_parts_price, labour_charges, total_expenses,
      status, priority, call_type, service_type, payment_type, invoice_value, payment_status, duration_limit, contract_title,
-     call_referrer, step2_completed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     call_referrer, step2_completed, gst_number, company_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const params = [
@@ -203,6 +203,8 @@ router.post("/", verifyToken, (req, res) => {
     c.contract_title || "",
     c.call_referrer || "",
     step2Completed,
+    c.gst_number || "",
+    c.company_name || "",
   ];
 
   db.query(sql, params, (err, result) => {
@@ -216,16 +218,12 @@ router.put("/:id", verifyToken, (req, res) => {
   const { id } = req.params;
   const c = req.body;
   
-  // Check if user is admin for Form 2 edits
-  const userRole = req.user?.role;
-  const isForm2Edit = !!(c.engineer || c.staff_name || c.start_time || c.end_time || c.km || c.petrol_charges);
-  
-  if (isForm2Edit && userRole !== "admin" && userRole !== "subadmin") {
-    return res.status(403).json({ error: "Only admins can edit call details" });
-  }
-  
-  const startMins = c.start_time ? (() => { const [h, m] = c.start_time.split(":").map(Number); return h * 60 + m; })() : 0;
-  const endMins = c.end_time ? (() => { const [h, m] = c.end_time.split(":").map(Number); return h * 60 + m; })() : 0;
+  const startMins = c.start_time && typeof c.start_time === "string" && c.start_time.includes(":") 
+    ? (() => { const [h, m] = c.start_time.split(":").map(Number); return (isNaN(h) || isNaN(m)) ? 0 : h * 60 + m; })() 
+    : 0;
+  const endMins = c.end_time && typeof c.end_time === "string" && c.end_time.includes(":") 
+    ? (() => { const [h, m] = c.end_time.split(":").map(Number); return (isNaN(h) || isNaN(m)) ? 0 : h * 60 + m; })() 
+    : 0;
   const actualDuration = startMins && endMins && endMins > startMins ? endMins - startMins : 0;
   const assignedTime = c.assigned_time || c.duration_limit || 30;
   const isExceeded = actualDuration > assignedTime ? 1 : 0;
@@ -235,8 +233,8 @@ router.put("/:id", verifyToken, (req, res) => {
   db.query("SELECT step2_completed FROM call_reports WHERE id = ?", [id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     const currentStep2 = rows.length ? rows[0].step2_completed : 0;
-    // Set step2_completed=1 if engineer is assigned (Step 2 submission)
-    const newStep2 = hasEngineer ? 1 : currentStep2;
+    // Set step2_completed=1 if engineer is assigned (Step 2 submission), unless explicitly overridden
+    const newStep2 = c.step2_completed !== undefined ? (c.step2_completed ? 1 : 0) : (hasEngineer ? 1 : currentStep2);
 
     const sql = `
       UPDATE call_reports SET
@@ -245,22 +243,47 @@ router.put("/:id", verifyToken, (req, res) => {
         remarks = ?, complaint = ?, description = ?, km = ?, petrol_charges = ?, spare_parts_price = ?,
         labour_charges = ?, total_expenses = ?, status = ?, priority = ?, call_type = ?, service_type = ?,
         payment_type = ?, invoice_value = ?, payment_status = ?, duration_limit = ?, contract_title = ?,
-        call_referrer = ?, step2_completed = ?
+        call_referrer = ?, step2_completed = ?, gst_number = ?, company_name = ?
       WHERE id = ?
     `;
     const params = [
-      c.customer || c.client_name || "", c.customer || c.customer_name || "", c.customer || c.client_name || "", c.technician || c.staff_name || "", c.sales_person || c.executive_name || "",
-      c.mobile_number || c.phone || "", c.mobile_number || c.phone || "", c.email || "", c.location_city || c.location || "", c.location_city || c.location || "",
-      c.start_time, c.end_time, assignedTime, actualDuration, isExceeded,
-      c.remarks || "", c.call_details || c.complaint || c.description || "", c.call_details || c.description || "",
-      c.km != null ? c.km : null,
-      parseFloat(c.petrol_charges) || 0, parseFloat(c.spare_parts_price) || 0, parseFloat(c.labour_charges) || 0,
+      c.customer || c.client_name || "", 
+      c.customer || c.customer_name || "", 
+      c.customer || c.client_name || "", 
+      c.engineer || c.technician || c.staff_name || "", 
+      c.sales_person || c.executive_name || c.call_referrer || "",
+      c.mobile_number || c.phone || "", 
+      c.mobile_number || c.phone || "", 
+      c.email || "", 
+      c.location_city || c.location || "", 
+      c.location_city || c.location || "",
+      c.start_time || null, 
+      c.end_time || null, 
+      assignedTime, 
+      actualDuration, 
+      isExceeded,
+      c.remarks || "", 
+      c.call_details || c.complaint || c.description || "", 
+      c.call_details || c.description || "",
+      c.km !== "" && c.km != null ? parseFloat(c.km) : null,
+      parseFloat(c.petrol_charges) || 0, 
+      parseFloat(c.spare_parts_price) || 0, 
+      parseFloat(c.labour_charges) || 0,
       (parseFloat(c.petrol_charges) || 0) + (parseFloat(c.spare_parts_price) || 0) + (parseFloat(c.labour_charges) || 0),
-      c.status || "Pending", c.priority || "Medium", c.call_type || "AMC",
+      c.status || "Pending", 
+      c.priority || "Medium", 
+      c.call_type || "AMC",
       c.service_type || (c.call_type === "AMC" || c.call_type === "ALC" ? c.call_type : "None"),
-      c.payment_type || "", parseFloat(c.invoice_value) || 0, c.payment_status || "",
-      c.duration_limit || assignedTime, c.contract_title || "",
-      c.call_referrer || "", newStep2, id
+      c.payment_type || "", 
+      parseFloat(c.invoice_value) || 0, 
+      c.payment_status || "",
+      c.duration_limit || assignedTime, 
+      c.contract_title || "",
+      c.call_referrer || "", 
+      newStep2, 
+      c.gst_number || "",
+      c.company_name || "",
+      id
     ];
 
     db.query(sql, params, (err) => {

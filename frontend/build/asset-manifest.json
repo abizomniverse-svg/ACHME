@@ -1,7 +1,7 @@
 {
   "files": {
-    "main.css": "/static/css/main.94affc47.css",
-    "main.js": "/static/js/main.65230e4a.js",
+    "main.css": "/static/css/main.efd273c5.css",
+    "main.js": "/static/js/main.3cd1f282.js",
     "static/js/453.64aababc.chunk.js": "/static/js/453.64aababc.chunk.js",
     "static/media/achme logo high.jpg.jpeg": "/static/media/achme logo high.jpg.89dcc6fceb277a722e57.jpeg",
     "static/media/achme-logo-high.jpeg": "/static/media/achme-logo-high.89dcc6fceb277a722e57.jpeg",
@@ -9,12 +9,12 @@
     "static/media/login-image.jpg": "/static/media/login-image.4ffd288eeff02d60fd62.jpg",
     "static/media/achme2logo-high.jpeg": "/static/media/achme2logo-high.356e38f5435181fae7d4.jpeg",
     "index.html": "/index.html",
-    "main.94affc47.css.map": "/static/css/main.94affc47.css.map",
-    "main.65230e4a.js.map": "/static/js/main.65230e4a.js.map",
+    "main.efd273c5.css.map": "/static/css/main.efd273c5.css.map",
+    "main.3cd1f282.js.map": "/static/js/main.3cd1f282.js.map",
     "453.64aababc.chunk.js.map": "/static/js/453.64aababc.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.94affc47.css",
-    "static/js/main.65230e4a.js"
+    "static/css/main.efd273c5.css",
+    "static/js/main.3cd1f282.js"
   ]
 }

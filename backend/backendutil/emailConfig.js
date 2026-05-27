@@ -52,10 +52,13 @@ async function getTransporterForUser(userId) {
         }
 
         const config = rows[0];
+        const secureMode = config.smtp_secure === "SSL/TLS" || Number(config.smtp_port) === 465;
+        const fromAddress = config.from_email_address || config.email_user;
+
         const userTransporter = nodemailer.createTransport({
           host: config.smtp_host || "smtp.gmail.com",
           port: Number(config.smtp_port) || 587,
-          secure: Number(config.smtp_port) === 465,
+          secure: secureMode,
           auth: {
             user: config.email_user,
             pass: config.email_pass,
@@ -64,7 +67,7 @@ async function getTransporterForUser(userId) {
         });
         return resolve({
           transporter: userTransporter,
-          fromAddress: `"Achme Communication" <${config.email_user}>`,
+          fromAddress: `"Achme Communication" <${fromAddress}>`,
         });
       }
     );
