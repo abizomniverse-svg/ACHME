@@ -90,6 +90,15 @@ if "!LAN_IP!"=="" set "LAN_IP=127.0.0.1"
 echo  [OK] LAN IP detected: !LAN_IP!
 echo       Employees will access: http://!LAN_IP!:%NGINX_PORT%
 
+:: Query and display network IP static vs dynamic status
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$adapter = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1;" ^
+  "if ($adapter.Dhcp -eq 'Disabled') {" ^
+  "  Write-Host '      IP Status: STATIC (IP Frozen - Safe for Employees)' -ForegroundColor Green" ^
+  "} else {" ^
+  "  Write-Host '      IP Status: DYNAMIC (DHCP - Might change! Run manage-local-ip.bat to freeze it)' -ForegroundColor Yellow" ^
+  "}"
+
 :: ================================================================
 :: STEP 3: Check / Install Node.js
 :: ================================================================
@@ -698,6 +707,11 @@ echo     http://achme.com              (hosts file mapped)
 echo.
 echo   From EMPLOYEE devices on same WiFi:
 echo     http://!LAN_IP!:%NGINX_PORT%
+echo.
+echo   IP FREEZER (RECOMMENDED):
+echo     If your Wi-Fi reconnects or switches, this IP will change and employees will lose connection!
+echo     To freeze this local IP permanently so it never changes, run:
+echo       manage-local-ip.bat (as Administrator)
 echo.
 echo   To make http://achme.com work on employee PCs too:
 echo   Add this line to C:\Windows\System32\drivers\etc\hosts

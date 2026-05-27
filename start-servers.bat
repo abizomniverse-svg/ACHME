@@ -54,6 +54,12 @@ echo  Backend LAN health:    http://%LAN_IP%:%BACKEND_PORT%/api/health
 echo.
 echo  Login: Kk@achmecommunication.com / kk@admin@123
 echo.
+echo  --------------------------------------------------------------------
+echo  * STABLE LOCAL ACCESS TIP *
+echo    If employees connect to your Wi-Fi, dynamic IPs change.
+echo    To freeze this local IP, run: `manage-local-ip.bat` as Administrator.
+echo  --------------------------------------------------------------------
+echo.
 echo  Keep the two opened command windows running.
 echo ====================================================================
 echo.
@@ -66,6 +72,15 @@ set "LAN_IP="
 for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$ip = (Find-NetRoute -RemoteIPAddress '8.8.8.8' -ErrorAction SilentlyContinue | Select-Object -First 1).LocalIPAddress; if (-not $ip) { $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress }; $ip"`) do set "LAN_IP=%%i"
 if "%LAN_IP%"=="" set "LAN_IP=127.0.0.1"
 echo   LAN IP: %LAN_IP%
+
+:: Query and display network IP static vs dynamic status
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$adapter = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1;" ^
+  "if ($adapter.Dhcp -eq 'Disabled') {" ^
+  "  Write-Host '  [STATUS] IP Address is: STATIC (IP Frozen - Safe for Employees)' -ForegroundColor Green" ^
+  "} else {" ^
+  "  Write-Host '  [STATUS] IP Address is: DYNAMIC (DHCP - Might change! Run manage-local-ip.bat to freeze it)' -ForegroundColor Yellow" ^
+  "}"
 exit /b 0
 
 :ensure_node

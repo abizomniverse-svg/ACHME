@@ -12,8 +12,8 @@ set "ROOT=%ROOT:~0,-1%"
 set "FRONTEND_PORT=82"
 set "BACKEND_PORT=5000"
 
-set "FRONTEND_DOMAIN=achme-vignesh.local"
-set "BACKEND_DOMAIN=api-achme-vignesh.local"
+set "FRONTEND_DOMAIN=achme.com"
+set "BACKEND_DOMAIN=www.achme.com"
 
 REM =========================================================
 REM ADMIN CHECK
@@ -125,6 +125,15 @@ if "%LAN_IP%"=="" (
 
 echo.
 echo ACTIVE IP: %LAN_IP%
+
+:: Query and display network IP static vs dynamic status
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$adapter = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1;" ^
+  "if ($adapter.Dhcp -eq 'Disabled') {" ^
+  "  Write-Host 'IP STATUS: STATIC (IP Frozen - Safe for Employees)' -ForegroundColor Green" ^
+  "} else {" ^
+  "  Write-Host 'IP STATUS: DYNAMIC (DHCP - Might change! Run manage-local-ip.bat as Admin to freeze it)' -ForegroundColor Yellow" ^
+  "}"
 echo.
 
 exit /b 0
@@ -141,19 +150,17 @@ set "HOSTS=%SystemRoot%\System32\drivers\etc\hosts"
 set "TEMP=%TEMP%\hosts_temp"
 
 powershell -Command ^
-"(Get-Content '%HOSTS%') ^| Where-Object {$_ -notmatch 'achme-vignesh.local' -and $_ -notmatch 'api-achme-vignesh.local'} ^| Set-Content '%TEMP%'"
+"(Get-Content '%HOSTS%') ^| Where-Object {$_ -notmatch '\bachme\.com\b'} ^| Set-Content '%TEMP%'"
 
 copy /Y "%TEMP%" "%HOSTS%" >nul
 del "%TEMP%" >nul 2>&1
 
 echo. >> "%HOSTS%"
-echo %LAN_IP% %FRONTEND_DOMAIN% >> "%HOSTS%"
-echo %LAN_IP% %BACKEND_DOMAIN% >> "%HOSTS%"
+echo %LAN_IP% %FRONTEND_DOMAIN% %BACKEND_DOMAIN% >> "%HOSTS%"
 
 echo.
 echo HOSTS UPDATED:
-echo    %FRONTEND_DOMAIN%  -> %LAN_IP%
-echo    %BACKEND_DOMAIN%   -> %LAN_IP%
+echo    %FRONTEND_DOMAIN% %BACKEND_DOMAIN%  -> %LAN_IP%
 echo.
 
 exit /b 0
