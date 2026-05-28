@@ -1,6 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
 const db = require("../config/database");
 const { generateOtp } = require("../backendutil/otp");
 const sendEmailOtp = require("../backendutil/sendSms");
@@ -564,11 +565,77 @@ router.post("/change-password-direct", verifyToken, (req, res) => {
   });
 });
 
+/* ================= SMTP CONNECTION VERIFICATION HELPER ================= */
+const testSMTPConnection = async (host, port, secure, user, pass) => {
+  const secureMode = secure === "SSL/TLS" || Number(port) === 465 || secure === "true" || secure === true;
+  
+  const createTransporter = () => nodemailer.createTransport({
+    host: host,
+    port: Number(port),
+    secure: secureMode,
+    auth: {
+      user: user,
+      pass: pass
+    },
+    connectionTimeout: 10000, // 10 seconds timeout
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+    tls: { rejectUnauthorized: false }
+  });
+
+  const verifyAttempt = (transporter) => {
+    return new Promise((resolve, reject) => {
+      transporter.verify((error, success) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(success);
+        }
+      });
+    });
+  };
+
+  // Auto retry once
+  try {
+    const transporter = createTransporter();
+    await verifyAttempt(transporter);
+    return { success: true };
+  } catch (error) {
+    console.warn("SMTP verification attempt 1 failed, retrying...", error.message);
+    try {
+      const transporter = createTransporter();
+      await verifyAttempt(transporter);
+      return { success: true };
+    } catch (retryError) {
+      console.error("SMTP verification attempt 2 failed:", retryError);
+      
+      let message = "SMTP Connection failed.";
+      let code = "SMTP_ERROR";
+      const errStr = retryError.message || "";
+      
+      if (errStr.includes("Timeout") || retryError.code === "ETIMEDOUT") {
+        message = "SMTP connection timeout. Please check your network connection, host, or port settings.";
+        code = "TIMEOUT";
+      } else if (errStr.includes("Username and Password not accepted") || errStr.includes("Invalid credentials") || errStr.includes("auth") || errStr.includes("Authentication failed")) {
+        message = "Authentication failed. Invalid email address or app password. Please verify your credentials.";
+        code = "INVALID_CREDENTIALS";
+      } else if (errStr.includes("ENOTFOUND") || errStr.includes("EHOSTUNREACH")) {
+        message = "SMTP server host not found. Please verify the SMTP server address.";
+        code = "INVALID_HOST";
+      } else {
+        message = `SMTP error: ${errStr}`;
+      }
+      
+      return { success: false, message, code, rawError: errStr };
+    }
+  }
+};
+
 /* ================= CHECK USER EMAIL SMTP CONFIG STATUS ================= */
 router.get("/check-email-config", verifyToken, (req, res) => {
   const userId = req.user.id;
   db.query(
-    "SELECT id, email_user, smtp_host, smtp_port, smtp_secure, from_email_address FROM user_email_configs WHERE user_id = ?",
+    "SELECT id, email_user, smtp_host, smtp_port, smtp_secure, from_email_address, sender_name, provider, is_enabled FROM user_email_configs WHERE user_id = ?",
     [userId],
     (err, rows) => {
       if (err) return res.status(500).json({ message: "Failed to check email config" });
@@ -580,25 +647,188 @@ router.get("/check-email-config", verifyToken, (req, res) => {
   );
 });
 
-/* ================= SAVE/UPDATE USER EMAIL SMTP CONFIG ================= */
-router.post("/save-email-config", verifyToken, (req, res) => {
+/* ================= TEST SMTP CONNECTION API ================= */
+router.post("/test-smtp-connection", verifyToken, async (req, res) => {
   const userId = req.user.id;
-  const { email_user, email_pass, smtp_host, smtp_port, smtp_secure, from_email_address } = req.body;
+  const { email_user, email_pass, smtp_host, smtp_port, smtp_secure, provider } = req.body;
+
+  let host = smtp_host;
+  let port = smtp_port;
+  let secure = smtp_secure;
+
+  if (provider === "google") {
+    host = "smtp.gmail.com";
+    port = 465;
+    secure = "true";
+  } else if (provider === "yahoo") {
+    host = "smtp.mail.yahoo.com";
+    port = 465;
+    secure = "true";
+  }
+
+  // Fallback to saved password if placeholder sent
+  let finalPass = email_pass;
+  if (!finalPass || finalPass === "••••••••••••••••") {
+    try {
+      const savedConfig = await new Promise((resolve, reject) => {
+        db.query("SELECT email_pass FROM user_email_configs WHERE user_id = ?", [userId], (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows);
+        });
+      });
+      if (savedConfig && savedConfig.length > 0) {
+        finalPass = savedConfig[0].email_pass;
+      }
+    } catch (e) {
+      return res.status(500).json({ message: "Failed to fetch saved password" });
+    }
+  }
+
+  if (!finalPass) {
+    return res.status(400).json({ message: "Password / App Password is required to test connection." });
+  }
+
+  const result = await testSMTPConnection(host, port, secure, email_user, finalPass);
+  if (result.success) {
+    res.json({ success: true, message: "SMTP connection verified successfully!" });
+  } else {
+    res.status(400).json({ success: false, message: result.message, code: result.code });
+  }
+});
+
+/* ================= SEND TEST EMAIL API ================= */
+router.post("/send-test-email", verifyToken, async (req, res) => {
+  const userId = req.user.id;
+  const { email_user, email_pass, smtp_host, smtp_port, smtp_secure, from_email_address, sender_name, provider, recipient_email } = req.body;
+
+  const toEmail = recipient_email ? recipient_email.trim() : email_user;
+  if (!toEmail) {
+    return res.status(400).json({ message: "Recipient email is required" });
+  }
+
+  let host = smtp_host;
+  let port = smtp_port;
+  let secure = smtp_secure;
+
+  if (provider === "google") {
+    host = "smtp.gmail.com";
+    port = 465;
+    secure = "true";
+  } else if (provider === "yahoo") {
+    host = "smtp.mail.yahoo.com";
+    port = 465;
+    secure = "true";
+  }
+
+  let finalPass = email_pass;
+  if (!finalPass || finalPass === "••••••••••••••••") {
+    try {
+      const savedConfig = await new Promise((resolve, reject) => {
+        db.query("SELECT email_pass FROM user_email_configs WHERE user_id = ?", [userId], (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows);
+        });
+      });
+      if (savedConfig && savedConfig.length > 0) {
+        finalPass = savedConfig[0].email_pass;
+      }
+    } catch (e) {
+      return res.status(500).json({ message: "Failed to fetch saved password" });
+    }
+  }
+
+  if (!finalPass) {
+    return res.status(400).json({ message: "Password / App Password is required to send test email." });
+  }
+
+  const secureMode = secure === "SSL/TLS" || Number(port) === 465 || secure === "true" || secure === true;
+  const fromEmail = from_email_address || email_user;
+  const sName = sender_name || "Achme SMTP Test";
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: host,
+      port: Number(port),
+      secure: secureMode,
+      auth: {
+        user: email_user,
+        pass: finalPass
+      },
+      tls: { rejectUnauthorized: false }
+    });
+
+    const mailOptions = {
+      from: `"${sName}" <${fromEmail}>`,
+      to: toEmail,
+      subject: "Achme SMTP Configuration - Test Email",
+      text: `Hello,\n\nThis is a test email from Achme Communication to verify your SMTP settings. If you received this, your SMTP configuration is fully working!\n\nDetails:\nProvider: ${provider || "Custom"}\nSMTP Server: ${host}\nPort: ${port}\nSecure SSL: ${secureMode}\n\nRegards,\nAchme Communication System`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e5e3df; border-radius: 8px; max-width: 600px; margin: 0 auto; background-color: #fcfcfc;">
+          <h2 style="color: #5645d4; border-bottom: 2px solid #5645d4; padding-bottom: 10px;">Achme SMTP Settings Verification</h2>
+          <p>Hello,</p>
+          <p>This is a test email sent from your <strong>Achme SMTP settings dashboard</strong>.</p>
+          <p style="background-color: #eafbf0; border-left: 4px solid #2bc460; padding: 12px; font-weight: bold; color: #1e7039;">
+            ✓ Congratulations! Your SMTP Configuration is working flawlessly.
+          </p>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+            <tr style="border-bottom: 1px solid #e5e3df;"><td style="padding: 8px; font-weight: bold; width: 150px;">SMTP Provider</td><td style="padding: 8px; text-transform: capitalize;">${provider || "Custom"}</td></tr>
+            <tr style="border-bottom: 1px solid #e5e3df;"><td style="padding: 8px; font-weight: bold;">SMTP Host</td><td style="padding: 8px;">${host}</td></tr>
+            <tr style="border-bottom: 1px solid #e5e3df;"><td style="padding: 8px; font-weight: bold;">Port</td><td style="padding: 8px;">${port}</td></tr>
+            <tr style="border-bottom: 1px solid #e5e3df;"><td style="padding: 8px; font-weight: bold;">SSL/TLS</td><td style="padding: 8px;">${secureMode ? "Enabled" : "Disabled"}</td></tr>
+            <tr style="border-bottom: 1px solid #e5e3df;"><td style="padding: 8px; font-weight: bold;">Sender Name</td><td style="padding: 8px;">${sName}</td></tr>
+            <tr style="border-bottom: 1px solid #e5e3df;"><td style="padding: 8px; font-weight: bold;">Sender Email</td><td style="padding: 8px;">${fromEmail}</td></tr>
+          </table>
+          <p style="margin-top: 20px; font-size: 12px; color: #787671;">This email was sent automatically as part of your system configuration test. You do not need to reply to this message.</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.json({ success: true, message: `Test email sent successfully to ${toEmail}!` });
+  } catch (error) {
+    console.error("Test email send failed:", error);
+    res.status(400).json({ success: false, message: `Failed to send test email: ${error.message}` });
+  }
+});
+
+/* ================= SAVE/UPDATE USER EMAIL SMTP CONFIG ================= */
+router.post("/save-email-config", verifyToken, async (req, res) => {
+  const userId = req.user.id;
+  const { email_user, email_pass, smtp_host, smtp_port, smtp_secure, from_email_address, sender_name, provider, is_enabled } = req.body;
 
   // Fetch the user's email address first to auto-populate default if needed
-  db.query("SELECT email FROM users WHERE id = ?", [userId], (err, rows) => {
+  db.query("SELECT email FROM users WHERE id = ?", [userId], async (err, rows) => {
     if (err || !rows.length) {
       return res.status(500).json({ message: "Failed to find user email" });
     }
     const defaultEmailUser = rows[0].email;
     const finalEmailUser = email_user ? email_user.trim() : defaultEmailUser;
-    const host = smtp_host ? smtp_host.trim() : "smtp.gmail.com";
-    const port = parseInt(smtp_port) || 587;
-    const secureType = smtp_secure || "STARTTLS";
+    
+    let host = smtp_host;
+    let port = smtp_port;
+    let secure = smtp_secure;
+
+    if (provider === "google") {
+      host = "smtp.gmail.com";
+      port = 465;
+      secure = "true";
+    } else if (provider === "yahoo") {
+      host = "smtp.mail.yahoo.com";
+      port = 465;
+      secure = "true";
+    } else {
+      host = host ? host.trim() : "smtp.gmail.com";
+      port = parseInt(port) || 587;
+      secure = secure || "STARTTLS";
+    }
+
     const finalFromEmail = from_email_address ? from_email_address.trim() : finalEmailUser;
+    const finalSenderName = sender_name ? sender_name.trim() : "Achme Communication";
+    const finalProvider = provider || "custom";
+    const finalEnabled = is_enabled !== undefined ? (is_enabled ? 1 : 0) : 1;
 
     // Check if an existing configuration exists to preserve password if placeholder is sent
-    db.query("SELECT email_pass FROM user_email_configs WHERE user_id = ?", [userId], (errExist, rowsExist) => {
+    db.query("SELECT email_pass FROM user_email_configs WHERE user_id = ?", [userId], async (errExist, rowsExist) => {
       let finalPass = email_pass;
       if ((!finalPass || finalPass === "••••••••••••••••") && rowsExist && rowsExist.length > 0) {
         finalPass = rowsExist[0].email_pass;
@@ -608,18 +838,32 @@ router.post("/save-email-config", verifyToken, (req, res) => {
         return res.status(400).json({ message: "SMTP Password or App Password is required" });
       }
 
+      // If configuration is being enabled/saved for the first time, or password changed, validate it first!
+      if (finalEnabled === 1) {
+        const check = await testSMTPConnection(host, port, secure, finalEmailUser, finalPass);
+        if (!check.success) {
+          return res.status(400).json({ 
+            message: `Verification failed: ${check.message}`, 
+            code: check.code 
+          });
+        }
+      }
+
       // Use INSERT ... ON DUPLICATE KEY UPDATE
       db.query(
-        `INSERT INTO user_email_configs (user_id, email_user, email_pass, smtp_host, smtp_port, smtp_secure, from_email_address)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE email_user = ?, email_pass = ?, smtp_host = ?, smtp_port = ?, smtp_secure = ?, from_email_address = ?`,
-        [userId, finalEmailUser, finalPass, host, port, secureType, finalFromEmail, finalEmailUser, finalPass, host, port, secureType, finalFromEmail],
+        `INSERT INTO user_email_configs (user_id, email_user, email_pass, smtp_host, smtp_port, smtp_secure, from_email_address, sender_name, provider, is_enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE email_user = ?, email_pass = ?, smtp_host = ?, smtp_port = ?, smtp_secure = ?, from_email_address = ?, sender_name = ?, provider = ?, is_enabled = ?`,
+        [
+          userId, finalEmailUser, finalPass, host, port, secure, finalFromEmail, finalSenderName, finalProvider, finalEnabled,
+          finalEmailUser, finalPass, host, port, secure, finalFromEmail, finalSenderName, finalProvider, finalEnabled
+        ],
         (err2) => {
           if (err2) {
             console.error("save-email-config db error:", err2);
             return res.status(500).json({ message: "Failed to save email configuration" });
           }
-          res.json({ message: "Email SMTP configuration saved successfully" });
+          res.json({ message: "Email SMTP configuration verified and saved successfully!" });
         }
       );
     });

@@ -206,17 +206,13 @@ function runCheckMissed() {
                       [consecutiveMissed, toDateOnly(lead.last_reminder_date), existing[0].id]
                     );
 
-                    // Send notification ONLY if consecutiveMissed is a multiple of 3 and we haven't notified yet!
-                    if (consecutiveMissed % 3 === 0) {
-                      checkAlertAlreadySent(lead.lead_id, lead.lead_type, consecutiveMissed, (errCheck, alreadySent) => {
-                        if (!errCheck && !alreadySent) {
-                          db.query("UPDATE lead_escalations SET missed_threshold_reached = 1 WHERE id = ?", [existing[0].id]);
-                          sendMissedAlert(lead, consecutiveMissed);
-                        }
-                      });
+                    // Send notification ONLY if we haven't notified yet for this open escalation
+                    if (!existing[0].missed_threshold_reached) {
+                      db.query("UPDATE lead_escalations SET missed_threshold_reached = 1 WHERE id = ?", [existing[0].id]);
+                      sendMissedAlert(lead, consecutiveMissed);
                     }
                   } else {
-                    // Create new escalation with missed_threshold_reached = 1
+                    // Create new escalation with missed_threshold_reached = 1 and send exactly 1 alert
                     db.query(
                       `INSERT INTO lead_escalations 
                        (lead_id, lead_type, employee_id, customer_name, mobile_number, staff_name, last_followup_date, missed_count, status, missed_threshold_reached)
@@ -228,13 +224,7 @@ function runCheckMissed() {
                           console.error("[Scheduler] lead_escalations insert error:", e2.message);
                         } else {
                           console.log(`[Scheduler] Escalation created for lead ${lead.lead_id} (${lead.lead_type})`);
-                          if (consecutiveMissed % 3 === 0) {
-                            checkAlertAlreadySent(lead.lead_id, lead.lead_type, consecutiveMissed, (errCheck, alreadySent) => {
-                              if (!errCheck && !alreadySent) {
-                                sendMissedAlert(lead, consecutiveMissed);
-                              }
-                            });
-                          }
+                          sendMissedAlert(lead, consecutiveMissed);
                         }
                       }
                     );

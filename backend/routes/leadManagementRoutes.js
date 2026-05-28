@@ -192,7 +192,7 @@ router.post("/check-missed", verifyToken, (req, res) => {
 
             if (consecutiveMissed >= 3) {
               db.query(
-                "SELECT id FROM lead_escalations WHERE lead_id=? AND lead_type=? AND status='Open'",
+                "SELECT id, missed_threshold_reached FROM lead_escalations WHERE lead_id=? AND lead_type=? AND status='Open'",
                 [lead.lead_id, lead.lead_type],
                 (e, existing) => {
                   if (e) {
@@ -204,38 +204,23 @@ router.post("/check-missed", verifyToken, (req, res) => {
                     // Update missed count on existing escalation
                     db.query("UPDATE lead_escalations SET missed_count=? WHERE id=?", [consecutiveMissed, existing[0].id]);
                     
-                    if (consecutiveMissed % 3 === 0) {
-                      checkAlertAlreadySent(lead.lead_id, lead.lead_type, consecutiveMissed, (errCheck, alreadySent) => {
-                        if (!errCheck && !alreadySent) {
-                          db.query("UPDATE lead_escalations SET missed_threshold_reached=1 WHERE id=?", [existing[0].id]);
-                          sendMissedAlert(lead, consecutiveMissed);
-                        }
-                        if (--pending === 0) res.json({ markedMissed, escalated });
-                      });
-                    } else {
-                      if (--pending === 0) res.json({ markedMissed, escalated });
+                    // Send notification ONLY if we haven't notified yet for this open escalation
+                    if (!existing[0].missed_threshold_reached) {
+                      db.query("UPDATE lead_escalations SET missed_threshold_reached=1 WHERE id=?", [existing[0].id]);
+                      sendMissedAlert(lead, consecutiveMissed);
                     }
+                    if (--pending === 0) res.json({ markedMissed, escalated });
                   } else {
-                    // Create new escalation
+                    // Create new escalation and send exactly 1 alert
                     db.query(
                       "INSERT INTO lead_escalations (lead_id, lead_type, employee_id, customer_name, mobile_number, staff_name, last_followup_date, missed_count, missed_threshold_reached) VALUES (?,?,?,?,?,?,?,?,1)",
                       [lead.lead_id, lead.lead_type, lead.employee_id || null, lead.customer_name, lead.mobile_number, lead.staff_name, toDateOnly(lead.followup_date), consecutiveMissed],
                       (e2) => {
                         if (!e2) {
                           escalated++;
-                          if (consecutiveMissed % 3 === 0) {
-                            checkAlertAlreadySent(lead.lead_id, lead.lead_type, consecutiveMissed, (errCheck, alreadySent) => {
-                              if (!errCheck && !alreadySent) {
-                                sendMissedAlert(lead, consecutiveMissed);
-                              }
-                              if (--pending === 0) res.json({ markedMissed, escalated });
-                            });
-                          } else {
-                            if (--pending === 0) res.json({ markedMissed, escalated });
-                          }
-                        } else {
-                          if (--pending === 0) res.json({ markedMissed, escalated });
+                          sendMissedAlert(lead, consecutiveMissed);
                         }
+                        if (--pending === 0) res.json({ markedMissed, escalated });
                       }
                     );
                   }

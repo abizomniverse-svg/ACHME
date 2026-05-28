@@ -72,3 +72,15 @@
 ├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
 │ 0  │ achme-backend    │ default     │ 1.0.0   │ fork    │ 21316    │ 5s     │ 0    │ online    │ 46.2%    │ 102.4mb  │ thana    │ disabled │
 └────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[Thu 05/28/2026 15:06:23.80] Startup restore running from D:\ACHME_COMUNICATION-main
+[Thu 05/28/2026 15:06:23.89] Resolved PM2 executable: pm2 with PM2_HOME: C:\Users\thana\.pm2
+[PM2] Spawning PM2 daemon with pm2_home=C:\Users\thana\.pm2
+[PM2] PM2 Successfully daemonized
+[PM2] Resurrecting
+[PM2] Restoring processes located in C:\Users\thana\.pm2\dump.pm2
+[PM2] Process D:\ACHME_COMUNICATION-main\backend\server.js restored
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ achme-backend    │ default     │ 1.0.0   │ fork    │ 35988    │ 1s     │ 0    │ online    │ 26.5%    │ 79.2mb   │ thana    │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘

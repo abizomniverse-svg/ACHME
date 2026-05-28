@@ -673,13 +673,30 @@ const CallReport = () => {
     const startMins = sh * 60 + sm;
     const endMins = eh * 60 + em;
     const actual = endMins > startMins ? endMins - startMins : 0;
-    const limit = selectedContract?.duration_limit || 30;
+    const durationMap = { "1hr": 60, "1.5hr": 90, "2hr": 120 };
+    const limit = durationMap[form.duration] || selectedContract?.duration_limit || 30;
     const exceeded = actual > limit;
     const overflow = exceeded ? actual - limit : 0;
     return { actual, limit, exceeded, overflow };
   };
 
   const duration = calculateDuration();
+
+  const calculateStep2Duration = () => {
+    if (!step2Form.start_time || !step2Form.end_time) return { actual: 0, limit: 0, exceeded: false, overflow: 0 };
+    const currentCall = calls.find(c => c.id === step2CallId);
+    const limit = currentCall?.duration_limit || currentCall?.assigned_time || 30;
+    const [sh, sm] = step2Form.start_time.split(":").map(Number);
+    const [eh, em] = step2Form.end_time.split(":").map(Number);
+    const startMins = sh * 60 + sm;
+    const endMins = eh * 60 + em;
+    const actual = endMins > startMins ? endMins - startMins : 0;
+    const exceeded = actual > limit;
+    const overflow = exceeded ? actual - limit : 0;
+    return { actual, limit, exceeded, overflow };
+  };
+
+  const step2Duration = calculateStep2Duration();
 
   const resetForm = () => {
     setForm({
@@ -705,7 +722,7 @@ const CallReport = () => {
 
   const openEditModal = (call) => {
     setForm({
-      customer: call.customer || call.client_name || "",
+      customer: call.customer_name || call.client_name || "",
       customer_id: call.customer_id || "",
       mobile_number: call.mobile_number || call.phone || "",
       email: call.email || "",
@@ -774,6 +791,7 @@ const CallReport = () => {
 
     try {
       const payload = {
+        ...(isEdit ? step2Form : {}),
         ...form,
         invoice_value: parseFloat(form.invoice_value) || 0,
         duration_limit: form.duration === "1hr" ? 60 : form.duration === "1.5hr" ? 90 : form.duration === "2hr" ? 120 : 30,
@@ -904,13 +922,18 @@ const CallReport = () => {
 
   const filteredCalls = useMemo(() => {
     return calls.filter(c => {
-      const matchSearch = !searchTerm || (c.customer || c.client_name || "").toLowerCase().includes(searchTerm.toLowerCase()) || (c.call_id || "").includes(searchTerm) || (c.engineer || c.staff_name || "").toLowerCase().includes(searchTerm.toLowerCase());
+      const matchSearch = !searchTerm || (c.customer_name || c.client_name || "").toLowerCase().includes(searchTerm.toLowerCase()) || (c.call_id || "").includes(searchTerm) || (c.engineer || c.staff_name || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchStatus = statusFilter === "All" || c.status === statusFilter;
       const matchPriority = priorityFilter === "All" || c.priority === priorityFilter;
       const matchEngineer = engineerFilter === "All" || c.engineer === engineerFilter;
       const matchPayment = paymentStatusFilter === "All" || c.payment_status === paymentStatusFilter;
       return matchSearch && matchStatus && matchPriority && matchEngineer && matchPayment;
-    }).sort((a, b) => (b.id || 0) - (a.id || 0));
+    }).sort((a, b) => {
+      const dateA = new Date(a.report_date || a.created_at || 0);
+      const dateB = new Date(b.report_date || b.created_at || 0);
+      if (dateB - dateA !== 0) return dateB - dateA;
+      return (b.id || 0) - (a.id || 0);
+    });
   }, [calls, searchTerm, statusFilter, priorityFilter, engineerFilter, paymentStatusFilter]);
 
   const stats = useMemo(() => ({
@@ -936,7 +959,7 @@ const CallReport = () => {
   const getEngineerStatus = (engineerName) => {
     const isBusy = busyEngineers.includes(engineerName);
     const currentCall = calls.find(c => (c.engineer || c.staff_name) === engineerName && ["Live", "Pending", "Observation"].includes(c.status));
-    return { isBusy, customerName: currentCall ? (currentCall.customer || currentCall.client_name) : null };
+    return { isBusy, customerName: currentCall ? (currentCall.customer_name || currentCall.client_name) : null };
   };
 
   const freeEngineers = useMemo(() => {
@@ -1309,7 +1332,7 @@ const CallReport = () => {
                             </div>
                           </td>
                           <td className="px-4 py-3">
-                            <p className="font-semibold text-sm truncate text-foreground">{c.customer || c.client_name || "—"}</p>
+                            <p className="font-semibold text-sm truncate text-foreground">{c.customer_name || c.client_name || "—"}</p>
                             <p className="text-[10px] truncate text-muted-foreground">{c.location_city || c.location || ""}</p>
                           </td>
                           <td className="px-4 py-3 text-xs truncate text-muted-foreground">{c.engineer || c.staff_name || "—"}</td>
@@ -1372,7 +1395,7 @@ const CallReport = () => {
                             <div className="flex gap-1 justify-center items-center">
                               <button onClick={() => setDetailCall(c)} className="p-1 rounded hover:bg-primary/10 transition-colors" title="View Details"><Eye size={14} className="text-primary" /></button>
                               <button onClick={() => openFollowUpCall(c)} className="p-1 rounded hover:bg-purple-100 transition-colors text-purple-600" title="Add follow-up call to this session"><Plus size={14} /></button>
-                              {!isComplete && <button onClick={() => openStep2Form(c)} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors" title="Complete Details">Complete</button>}
+                              {!isComplete && <button onClick={() => handleInlineUpdate(c.id, { step2_completed: 1 })} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors" title="Complete Details">Complete</button>}
                               <button onClick={() => openEditModal(c)} className="p-1 rounded hover:bg-accent/10 transition-colors" title="Edit"><Edit size={14} className="text-accent" /></button>
                               {canEditDelete && <button onClick={() => deleteCall(c.id)} className="p-1 rounded hover:bg-destructive/10 transition-colors" title="Delete"><Trash2 size={14} className="text-destructive" /></button>}
                             </div>
@@ -2030,7 +2053,7 @@ const CallReport = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Customer</p>
-                    <p className="font-semibold text-xs sm:text-sm truncate text-foreground">{calls.find(c => c.id === step2CallId)?.customer || calls.find(c => c.id === step2CallId)?.client_name || "—"}</p>
+                    <p className="font-semibold text-xs sm:text-sm truncate text-foreground">{calls.find(c => c.id === step2CallId)?.customer_name || calls.find(c => c.id === step2CallId)?.client_name || "—"}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Call Type</p>
@@ -2045,10 +2068,10 @@ const CallReport = () => {
                     <p className="font-semibold text-xs sm:text-sm text-accent">{formatCurrency(calls.find(c => c.id === step2CallId)?.invoice_value)}</p>
                   </div>
                 </div>
-                {calls.find(c => c.id === step2CallId)?.call_details && (
+                {(calls.find(c => c.id === step2CallId)?.call_details || calls.find(c => c.id === step2CallId)?.complaint || calls.find(c => c.id === step2CallId)?.description) && (
                   <div className="mt-3 pt-3 border-t border-primary/20">
                     <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Call Details</p>
-                    <p className="text-xs sm:text-sm mt-1 text-muted-foreground">{calls.find(c => c.id === step2CallId)?.call_details}</p>
+                    <p className="text-xs sm:text-sm mt-1 text-muted-foreground">{calls.find(c => c.id === step2CallId)?.call_details || calls.find(c => c.id === step2CallId)?.complaint || calls.find(c => c.id === step2CallId)?.description}</p>
                   </div>
                 )}
               </div>
@@ -2096,6 +2119,17 @@ const CallReport = () => {
                 <FormField label="Kilometers (KM)" icon={MapPin}>
                   <input type="number" value={step2Form.km} onChange={e => setStep2Form({ ...step2Form, km: e.target.value })} className={inputBase} placeholder="0" min="0" step="0.1" />
                 </FormField>
+                {step2Duration.actual > 0 && (
+                  <div className={`p-3 rounded-lg border flex flex-col justify-center sm:col-span-2 lg:col-span-3 ${step2Duration.exceeded ? "bg-red-50 border-red-200 text-red-700" : "bg-accent/5 border-accent/20"}`}>
+                    <span className={`text-xs font-semibold ${step2Duration.exceeded ? "text-red-600" : "text-accent"}`}>Actual Duration: {step2Duration.actual} min</span>
+                    <span className="text-[10px] text-muted-foreground">Assigned Limit: {step2Duration.limit} min</span>
+                    {step2Duration.exceeded && (
+                      <span className="text-[10px] font-bold text-red-600 flex items-center gap-1 mt-1">
+                        <AlertTriangle size={10} /> Overflow: Exceeded by {step2Duration.overflow} min!
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               <SectionDivider icon={DollarSign} title="Expenses & Billing" />

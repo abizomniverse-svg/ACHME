@@ -52,8 +52,28 @@ async function getTransporterForUser(userId) {
         }
 
         const config = rows[0];
-        const secureMode = config.smtp_secure === "SSL/TLS" || Number(config.smtp_port) === 465;
+        
+        // If the configuration is explicitly disabled, fall back to global config
+        if (config.is_enabled === 0) {
+          const defaultTransporter = nodemailer.createTransport({
+            host: "smtp.gmail.com",
+            port: 587,
+            secure: false,
+            auth: {
+              user: process.env.EMAIL_USER,
+              pass: process.env.EMAIL_PASS,
+            },
+            tls: { rejectUnauthorized: false },
+          });
+          return resolve({
+            transporter: defaultTransporter,
+            fromAddress: `"Achme Communication" <${process.env.EMAIL_USER}>`,
+          });
+        }
+
+        const secureMode = config.smtp_secure === "SSL/TLS" || Number(config.smtp_port) === 465 || config.smtp_secure === "true";
         const fromAddress = config.from_email_address || config.email_user;
+        const senderName = config.sender_name || "Achme Communication";
 
         const userTransporter = nodemailer.createTransport({
           host: config.smtp_host || "smtp.gmail.com",
@@ -67,7 +87,7 @@ async function getTransporterForUser(userId) {
         });
         return resolve({
           transporter: userTransporter,
-          fromAddress: `"Achme Communication" <${fromAddress}>`,
+          fromAddress: `"${senderName}" <${fromAddress}>`,
         });
       }
     );

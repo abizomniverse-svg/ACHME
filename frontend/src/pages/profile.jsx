@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useAuth } from "../auth/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { User, Mail, Phone, MapPin, Lock, Save, X, Eye, EyeOff, Clock, CheckCircle, XCircle } from "lucide-react";
+import { User, Mail, Phone, MapPin, Lock, Save, X, Eye, EyeOff, Clock, CheckCircle, XCircle, Settings, ToggleLeft, ToggleRight, CheckSquare, Sparkles, Server } from "lucide-react";
+import SMTPConfigPrompt from "../components/SMTPConfigPrompt";
 import socket from "../socket/socket";
 
 import { API } from "../config/api";
@@ -36,6 +37,7 @@ const Profile = () => {
   const [showNewPass, setShowNewPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [showSMTPPrompt, setShowSMTPPrompt] = useState(false);
   const [smtpData, setSmtpData] = useState(() => {
     try {
       const local = localStorage.getItem("user_smtp_config");
@@ -45,9 +47,12 @@ const Profile = () => {
           email_user: parsed.email_user || "",
           email_pass: parsed.email_pass || "",
           smtp_host: parsed.smtp_host || "smtp.gmail.com",
-          smtp_port: parsed.smtp_port || "587",
-          smtp_secure: parsed.smtp_secure || "STARTTLS",
-          from_email_address: parsed.from_email_address || ""
+          smtp_port: parsed.smtp_port || "465",
+          smtp_secure: parsed.smtp_secure || "true",
+          from_email_address: parsed.from_email_address || "",
+          sender_name: parsed.sender_name || "",
+          provider: parsed.provider || "google",
+          is_enabled: parsed.is_enabled === 1 || parsed.is_enabled === true
         };
       }
     } catch (_) {}
@@ -55,9 +60,12 @@ const Profile = () => {
       email_user: "",
       email_pass: "",
       smtp_host: "smtp.gmail.com",
-      smtp_port: "587",
-      smtp_secure: "STARTTLS",
-      from_email_address: ""
+      smtp_port: "465",
+      smtp_secure: "true",
+      from_email_address: "",
+      sender_name: "",
+      provider: "google",
+      is_enabled: true
     };
   });
   const [hasSMTP, setHasSMTP] = useState(false);
@@ -186,9 +194,12 @@ const Profile = () => {
           email_user: res.data.config.email_user || "",
           email_pass: "••••••••••••••••",
           smtp_host: res.data.config.smtp_host || "smtp.gmail.com",
-          smtp_port: String(res.data.config.smtp_port || 587),
-          smtp_secure: res.data.config.smtp_secure || "STARTTLS",
-          from_email_address: res.data.config.from_email_address || ""
+          smtp_port: String(res.data.config.smtp_port || 465),
+          smtp_secure: res.data.config.smtp_secure || "true",
+          from_email_address: res.data.config.from_email_address || "",
+          sender_name: res.data.config.sender_name || "",
+          provider: res.data.config.provider || "google",
+          is_enabled: res.data.config.is_enabled === 1 || res.data.config.is_enabled === true
         };
         setSmtpData(config);
         localStorage.setItem("user_smtp_config", JSON.stringify({ ...config, email_pass: res.data.config.email_pass || "••••••••••••••••" }));
@@ -198,42 +209,28 @@ const Profile = () => {
     }
   };
 
-  const handleSMTPSave = async (e) => {
-    e.preventDefault();
-    if (!smtpData.email_pass.trim()) {
-      setMessage({ type: "error", text: "SMTP App Password is required" });
-      return;
-    }
-
+  const handleSMTPToggle = async (newVal) => {
     setSmtpLoading(true);
+    setMessage({ type: "", text: "" });
     try {
       const token = localStorage.getItem("token");
       await axios.post(`${API}/api/auth/save-email-config`, {
         email_user: smtpData.email_user,
-        email_pass: smtpData.email_pass,
+        email_pass: "••••••••••••••••", // Handled as fallback in backend
         smtp_host: smtpData.smtp_host,
-        smtp_port: parseInt(smtpData.smtp_port) || 587,
+        smtp_port: parseInt(smtpData.smtp_port) || 465,
         smtp_secure: smtpData.smtp_secure,
-        from_email_address: smtpData.from_email_address
+        from_email_address: smtpData.from_email_address,
+        sender_name: smtpData.sender_name,
+        provider: smtpData.provider,
+        is_enabled: newVal
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setMessage({ type: "success", text: "SMTP Configuration saved successfully" });
-      setHasSMTP(true);
-      
-      // Save locally
-      localStorage.setItem("user_smtp_config", JSON.stringify({
-        email_user: smtpData.email_user,
-        email_pass: smtpData.email_pass,
-        smtp_host: smtpData.smtp_host,
-        smtp_port: smtpData.smtp_port,
-        smtp_secure: smtpData.smtp_secure,
-        from_email_address: smtpData.from_email_address
-      }));
-
+      setMessage({ type: "success", text: `SMTP outgoing service successfully ${newVal ? 'enabled' : 'disabled'}!` });
       fetchSMTPConfig();
     } catch (err) {
-      setMessage({ type: "error", text: err.response?.data?.message || "Failed to save SMTP config" });
+      setMessage({ type: "error", text: err.response?.data?.message || "Failed to toggle SMTP status" });
     } finally {
       setSmtpLoading(false);
     }
@@ -495,99 +492,108 @@ const Profile = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mt-6 animate-fade-in">
-        <div className="bg-gradient-to-r from-indigo-500 to-blue-500 px-6 py-4">
-          <div className="flex items-center gap-3 text-white">
-            <Mail size={24} />
+        <div className="bg-gradient-to-r from-indigo-500 via-blue-500 to-indigo-600 px-6 py-4 flex justify-between items-center text-white">
+          <div className="flex items-center gap-3">
+            <Mail size={24} className="text-white" />
             <div>
-              <h3 className="text-lg font-bold">SMTP Email Configuration</h3>
-              <p className="text-indigo-100 text-xs">Configure custom outgoing SMTP settings to send proposals, invoices, and service estimates</p>
+              <h3 className="text-lg font-bold">SMTP Settings (Outgoing Mail)</h3>
+              <p className="text-indigo-100 text-xs">Custom outbound mail settings for proposals, invoices, and estimates</p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowSMTPPrompt(true)}
+            className="px-4 py-1.5 bg-white text-indigo-700 hover:bg-indigo-50 rounded-lg text-xs font-bold uppercase transition-all shadow-sm active:scale-95 outline-none font-sans"
+          >
+            {hasSMTP ? "Edit Settings" : "Configure SMTP"}
+          </button>
         </div>
 
-        <form onSubmit={handleSMTPSave} className="p-6 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">SMTP Server Host</label>
-              <input 
-                type="text" 
-                value={smtpData.smtp_host} 
-                onChange={(e) => setSmtpData({ ...smtpData, smtp_host: e.target.value })} 
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
-                placeholder="e.g. smtp.gmail.com"
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">SMTP Port</label>
-              <input 
-                type="text" 
-                value={smtpData.smtp_port} 
-                onChange={(e) => setSmtpData({ ...smtpData, smtp_port: e.target.value })} 
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
-                placeholder="e.g. 587"
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">SMTP Username / Email Address</label>
-              <input 
-                type="email" 
-                value={smtpData.email_user} 
-                onChange={(e) => setSmtpData({ ...smtpData, email_user: e.target.value })} 
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
-                placeholder="e.g. info@yourcompany.com"
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">SMTP Password or App Password</label>
-              <input 
-                type="password" 
-                value={smtpData.email_pass} 
-                onChange={(e) => setSmtpData({ ...smtpData, email_pass: e.target.value })} 
-                onClick={() => { if (hasSMTP && smtpData.email_pass === "••••••••••••••••") setSmtpData({ ...smtpData, email_pass: "" }); }}
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
-                placeholder={hasSMTP ? "Enter new password to overwrite" : "Enter SMTP/App password"}
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Encryption Type</label>
-              <select
-                value={smtpData.smtp_secure}
-                onChange={(e) => setSmtpData({ ...smtpData, smtp_secure: e.target.value })}
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all bg-white"
-                required
-              >
-                <option value="STARTTLS">STARTTLS (Usually Port 587 / 25)</option>
-                <option value="SSL/TLS">SSL/TLS (Usually Port 465)</option>
-                <option value="None">None (Insecure / Port 25)</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">From Email Address</label>
-              <input 
-                type="email" 
-                value={smtpData.from_email_address} 
-                onChange={(e) => setSmtpData({ ...smtpData, from_email_address: e.target.value })} 
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all" 
-                placeholder="e.g. proposals@yourcompany.com"
-                required
-              />
-            </div>
-          </div>
+        <div className="p-6 space-y-4">
+          {hasSMTP ? (
+            <div className="space-y-4">
+              {/* Status Header */}
+              <div className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200/60 rounded-xl">
+                <div>
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Service Active Status</span>
+                  <span className="text-[11px] text-slate-400">Toggle outbound email delivery status directly</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={smtpLoading}
+                  onClick={() => handleSMTPToggle(!smtpData.is_enabled)}
+                  className="focus:outline-none transition-transform active:scale-95"
+                >
+                  {smtpData.is_enabled ? (
+                    <ToggleRight size={40} className="text-indigo-600 cursor-pointer" />
+                  ) : (
+                    <ToggleLeft size={40} className="text-slate-300 cursor-pointer" />
+                  )}
+                </button>
+              </div>
 
-          <div className="flex justify-end pt-2 border-t border-gray-100">
-            <button 
-              type="submit" 
-              disabled={smtpLoading}
-              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 text-sm font-semibold shadow-sm transition-colors flex items-center gap-2"
-            >
-              {smtpLoading ? "Saving Config..." : "Save SMTP Config"}
-            </button>
-          </div>
-        </form>
+              {/* Grid of values */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-3 bg-slate-50/50 border border-slate-100 rounded-lg flex items-center gap-3">
+                  <Server size={18} className="text-indigo-500" />
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Provider & Server</span>
+                    <span className="text-sm font-semibold text-slate-700 capitalize">{smtpData.provider || "Custom"} ({smtpData.smtp_host}:{smtpData.smtp_port})</span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-50/50 border border-slate-100 rounded-lg flex items-center gap-3">
+                  <User size={18} className="text-indigo-500" />
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Sender Name</span>
+                    <span className="text-sm font-semibold text-slate-700">{smtpData.sender_name || "Achme Communication"}</span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-50/50 border border-slate-100 rounded-lg flex items-center gap-3">
+                  <Mail size={18} className="text-indigo-500" />
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Username / Account</span>
+                    <span className="text-sm font-semibold text-slate-700 select-all">{smtpData.email_user}</span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-50/50 border border-slate-100 rounded-lg flex items-center gap-3">
+                  <Sparkles size={18} className="text-indigo-500" />
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Sender From Address</span>
+                    <span className="text-sm font-semibold text-slate-700 select-all">{smtpData.from_email_address || smtpData.email_user}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Info alert */}
+              <div className="p-3 bg-indigo-50/50 border border-indigo-100/50 rounded-xl text-[11px] text-indigo-600 flex items-start gap-2.5">
+                <CheckSquare size={16} className="shrink-0 mt-0.5" />
+                <span>
+                  All system invoices, performing proposals, and service estimation documents generated under this session will be routed securely through your SMTP mail servers.
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 space-y-3">
+              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                <Mail size={22} />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-slate-700">No Custom SMTP Configured</p>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-0.5">Configure your custom Google Workspace or Yahoo Mail account to send emails from your own domains.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSMTPPrompt(true)}
+                className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-xs font-bold uppercase transition-all shadow-sm active:scale-95 outline-none font-sans"
+              >
+                Configure SMTP Settings
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {showPasswordModal && (
@@ -679,6 +685,16 @@ const Profile = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {showSMTPPrompt && (
+        <SMTPConfigPrompt 
+          email={profile.email} 
+          onClose={() => {
+            setShowSMTPPrompt(false);
+            fetchSMTPConfig();
+          }} 
+        />
       )}
     </div>
   );

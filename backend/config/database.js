@@ -719,7 +719,10 @@ async function ensureTablesAndColumns() {
     { table: "users", column: "last_name", definition: "last_name VARCHAR(100) DEFAULT NULL" },
     // user_email_configs extra columns
     { table: "user_email_configs", column: "smtp_secure", definition: "smtp_secure VARCHAR(50) DEFAULT 'STARTTLS'" },
-    { table: "user_email_configs", column: "from_email_address", definition: "from_email_address VARCHAR(150) DEFAULT NULL" }
+    { table: "user_email_configs", column: "from_email_address", definition: "from_email_address VARCHAR(150) DEFAULT NULL" },
+    { table: "user_email_configs", column: "sender_name", definition: "sender_name VARCHAR(150) DEFAULT NULL" },
+    { table: "user_email_configs", column: "provider", definition: "provider VARCHAR(50) DEFAULT NULL" },
+    { table: "user_email_configs", column: "is_enabled", definition: "is_enabled TINYINT(1) DEFAULT 1" }
   ];
 
   const enumFixes = [
