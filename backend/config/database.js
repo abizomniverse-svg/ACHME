@@ -815,10 +815,10 @@ async function seedDefaultEmployees() {
   const adminUser = { first_name: "Admin", last_name: "", emp_id: "ADMIN001", email: "Kk@achmecommunication.com", mobile: "", job_title: "Administrator", emp_role: "Manager", role: "admin", password: "kk@admin@123" };
   const adminHash = await bcrypt.hash(adminUser.password, 10);
   try {
-    const existingAdmin = await queryAsync(`SELECT id FROM users WHERE email = ? OR emp_id = ?`, [adminUser.email, adminUser.emp_id]);
+    const existingAdmin = await queryAsync(`SELECT id FROM users WHERE email = ?`, [adminUser.email]);
     if (existingAdmin.length > 0) {
-      await queryAsync(`UPDATE users SET first_name=?, last_name=?, emp_id=?, email=?, user_password=?, role='admin', status='active' WHERE emp_id=?`,
-        [adminUser.first_name, adminUser.last_name, adminUser.emp_id, adminUser.email, adminHash, adminUser.emp_id]);
+      await queryAsync(`UPDATE users SET first_name=?, last_name=?, emp_id=?, user_password=?, role='admin', status='active' WHERE email=?`,
+        [adminUser.first_name, adminUser.last_name, adminUser.emp_id, adminHash, adminUser.email]);
     } else {
       await queryAsync(`INSERT INTO users (first_name, last_name, emp_id, email, user_password, role, status) VALUES (?, ?, ?, ?, ?, 'admin', 'active')`,
         [adminUser.first_name, adminUser.last_name, adminUser.emp_id, adminUser.email, adminHash]);
@@ -826,17 +826,17 @@ async function seedDefaultEmployees() {
   } catch (e) { console.log("Admin seed:", e.message); }
 
   try {
-    const adminTeamCheck = await queryAsync(`SELECT id FROM teammember WHERE emp_email = ? OR emp_id = ?`, [adminUser.email, adminUser.emp_id]);
+    const adminTeamCheck = await queryAsync(`SELECT id FROM teammember WHERE emp_email = ?`, [adminUser.email]);
     if (adminTeamCheck.length === 0) {
       await queryAsync(
         `INSERT INTO teammember (first_name, last_name, emp_id, emp_email, mobile, job_title, emp_role, quotation_count, user_id)
-         SELECT ?, ?, ?, ?, ?, ?, ?, 0, id FROM users WHERE emp_id = ? LIMIT 1`,
-        [adminUser.first_name, adminUser.last_name, adminUser.emp_id, adminUser.email, adminUser.mobile, adminUser.job_title, adminUser.emp_role, adminUser.emp_id]
+         SELECT ?, ?, ?, ?, ?, ?, ?, 0, id FROM users WHERE email = ? LIMIT 1`,
+        [adminUser.first_name, adminUser.last_name, adminUser.emp_id, adminUser.email, adminUser.mobile, adminUser.job_title, adminUser.emp_role, adminUser.email]
       );
     } else {
       await queryAsync(
-        `UPDATE teammember SET first_name = ?, last_name = ?, emp_id = ?, emp_email = ?, job_title = ?, emp_role = ?, user_id = (SELECT id FROM users WHERE emp_id = ? LIMIT 1) WHERE emp_id = ?`,
-        [adminUser.first_name, adminUser.last_name, adminUser.emp_id, adminUser.email, adminUser.job_title, adminUser.emp_role, adminUser.emp_id, adminUser.emp_id]
+        `UPDATE teammember SET first_name = ?, last_name = ?, emp_id = ?, job_title = ?, emp_role = ?, user_id = (SELECT id FROM users WHERE email = ? LIMIT 1) WHERE emp_email = ?`,
+        [adminUser.first_name, adminUser.last_name, adminUser.emp_id, adminUser.job_title, adminUser.emp_role, adminUser.email, adminUser.email]
       );
     }
   } catch (e) { console.log("Admin teammember seed:", e.message); }

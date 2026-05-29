@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-title ACHME CRM - Install Automatic Windows Boot & Logon Startup
+title ACHME CRM - Install Automatic Windows Boot Startup
 
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
@@ -32,9 +32,10 @@ exit /b 1
 :is_admin
 
 if "%SILENT_MODE%"=="0" (
+  cls
   echo.
   echo ====================================================================
-  echo  ACHME CRM - AUTOMATIC WINDOWS BOOT & LOGON STARTUP INSTALLER
+  echo  ACHME CRM - AUTOMATIC WINDOWS BOOT STARTUP INSTALLER
   echo ====================================================================
   echo.
 )
@@ -43,9 +44,31 @@ if "%SILENT_MODE%"=="0" (
 :: STEP 1 — Detect LAN IP
 :: ----------------------------------------------------------------
 if "%SILENT_MODE%"=="0" echo [Step 1/5] Detecting LAN IP...
-set "LAN_IP="
-for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress"`) do set "LAN_IP=%%i"
-if "%LAN_IP%"=="" set "LAN_IP=127.0.0.1"
+set "LAN_IP=127.0.0.1"
+
+:: Read from saved file first
+if exist "%ROOT%\.last-build-ip" (
+  set /p LAN_IP=<"%ROOT%\.last-build-ip"
+)
+
+:: Also detect live via ipconfig
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (
+  set "CANDIDATE=%%a"
+  set "CANDIDATE=!CANDIDATE: =!"
+  set "PREFIX1=!CANDIDATE:~0,4!"
+  set "PREFIX2=!CANDIDATE:~0,8!"
+  if not "!PREFIX1!"=="127." (
+    if not "!PREFIX2!"=="169.254." (
+      set "LAN_IP=!CANDIDATE!"
+      goto :ip_done
+    )
+  )
+)
+:ip_done
+
+:: Save IP
+echo %LAN_IP%>"%ROOT%\.last-build-ip"
+
 if "%SILENT_MODE%"=="0" echo   Detected LAN IP: %LAN_IP%
 if "%SILENT_MODE%"=="0" echo.
 
@@ -76,10 +99,10 @@ if exist "%NGINX_DIR%\nginx.exe" (
   echo     }
   echo.
   echo     server {
-  echo         listen 0.0.0.0:82;
-  echo         server_name achme.com www.achme.com IBM-SERVER IBM-SERVER.achme.com %LAN_IP% 127.0.0.1 localhost _;
+  echo         listen 0.0.0.0:82 default_server;
+  echo         server_name _;
   echo.
-  echo         root %NGINX_DIR%/html/achme;
+  echo         root C:/nginx/html/achme;
   echo         index index.html;
   echo.
   echo         location / {
@@ -133,7 +156,7 @@ if exist "%NGINX_DIR%\nginx.exe" (
   echo         }
   echo     }
   echo }
-  ) > "%NGINX_DIR%\conf\nginx.conf"
+  ) >"%NGINX_DIR%\conf\nginx.conf"
   if "%SILENT_MODE%"=="0" echo   [OK] nginx.conf written (listens on ALL interfaces - port 82)
 ) else (
   if "%SILENT_MODE%"=="0" echo   [WARN] Nginx not found at %NGINX_DIR%
@@ -145,10 +168,10 @@ if "%SILENT_MODE%"=="0" echo.
 :: ----------------------------------------------------------------
 if "%SILENT_MODE%"=="0" echo [Step 3/5] Updating SERVER hosts file...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$hostsFile = ""$env:SystemRoot\System32\drivers\etc\hosts"";" ^
+  "$hostsFile = \"$env:SystemRoot\System32\drivers\etc\hosts\";" ^
   "$domains = @('achme.com', 'www.achme.com', 'IBM-SERVER', 'IBM-SERVER.achme.com');" ^
   "$content = [System.IO.File]::ReadAllLines($hostsFile);" ^
-  "$filtered = $content | Where-Object { $line = $_.Trim(); $keep = $true; foreach ($d in $domains) { if ($line -match (""(?i)\b"" + [regex]::Escape($d) + ""\b"")) { $keep = $false; break } }; $keep };" ^
+  "$filtered = $content | Where-Object { $line = $_.Trim(); $keep = $true; foreach ($d in $domains) { if ($line -match ('(?i)\b' + [regex]::Escape($d) + '\b')) { $keep = $false; break } }; $keep };" ^
   "$ip = '%LAN_IP%';" ^
   "$newMappings = @(" ^
   "    ''," ^
@@ -158,8 +181,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   ");" ^
   "$result = $filtered + $newMappings;" ^
   "[System.IO.File]::WriteAllLines($hostsFile, $result);" ^
-  "Write-Host ('  [OK] Server hosts: achme.com + IBM-SERVER -> ' + $ip) -ForegroundColor Green" ^
-  >> "%LOG_DIR%\install-boot-startup.log" 2>&1
+  "Write-Host ('  [OK] Server hosts: achme.com + IBM-SERVER -> ' + $ip)" ^
+  >>"%LOG_DIR%\install-boot-startup.log" 2>&1
 ipconfig /flushdns >nul
 if "%SILENT_MODE%"=="0" echo   [OK] Server hosts file updated
 if "%SILENT_MODE%"=="0" echo.
@@ -169,10 +192,10 @@ if "%SILENT_MODE%"=="0" echo.
 :: ----------------------------------------------------------------
 if "%SILENT_MODE%"=="0" echo [Step 4/5] Registering Boot Task (headless, SYSTEM account)...
 if exist "%ROOT%\achme-startup.bat" (
-  schtasks /create /tn "ACHME_CRM_Boot_Startup" /tr "\"%ROOT%\achme-startup.bat\"" /sc onstart /ru SYSTEM /rl HIGHEST /f >nul 2>&1
+  schtasks /create /tn "ACHME_CRM_Boot_Startup" /tr "\"%ROOT%\achme-startup.bat\"" /sc onlogon /rl HIGHEST /f >nul 2>&1
   if "%SILENT_MODE%"=="0" (
     if errorlevel 1 (
-      echo   [WARN] Failed to register Boot Task.
+      echo   [WARN] Failed to register Boot Task. Try running manually as Administrator.
     ) else (
       echo   [OK] Boot Task registered - starts PM2 + Nginx on every OS boot.
     )
@@ -180,25 +203,27 @@ if exist "%ROOT%\achme-startup.bat" (
 ) else (
   if "%SILENT_MODE%"=="0" echo   [WARN] achme-startup.bat not found - skipping boot task.
 )
+if "%SILENT_MODE%"=="0" echo.
 
 :: ----------------------------------------------------------------
 :: STEP 5 — Reload Nginx with new config
 :: ----------------------------------------------------------------
 if "%SILENT_MODE%"=="0" echo [Step 5/5] Reloading Nginx...
 if exist "%NGINX_DIR%\nginx.exe" (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "if (Get-NetTCPConnection -State Listen -LocalPort 82 -ErrorAction SilentlyContinue) {" ^
-    "  Start-Process '%NGINX_DIR%\nginx.exe' -ArgumentList '-s','reload' -WorkingDirectory '%NGINX_DIR%' -WindowStyle Hidden;" ^
-    "  Start-Sleep 2" ^
-    "} else {" ^
-    "  Start-Process '%NGINX_DIR%\nginx.exe' -WorkingDirectory '%NGINX_DIR%' -WindowStyle Hidden;" ^
-    "  Start-Sleep 3" ^
-    "}" >nul 2>&1
-  if "%SILENT_MODE%"=="0" echo   [OK] Nginx reloaded.
+  taskkill /F /IM nginx.exe >nul 2>&1
+  timeout /t 2 /nobreak >nul
+  cd /d "%NGINX_DIR%"
+  start "" /B nginx.exe
+  cd /d "%ROOT%"
+  timeout /t 2 /nobreak >nul
+  if "%SILENT_MODE%"=="0" echo   [OK] Nginx started/reloaded.
 )
 if "%SILENT_MODE%"=="0" echo.
 
 if "%SILENT_MODE%"=="1" exit /b 0
+
+:: Open the access guide
+start "" "%ROOT%\show.bat"
 
 :: ----------------------------------------------------------------
 :: Interactive mode — show summary
@@ -214,9 +239,9 @@ echo.
 echo  Access URLs (all working after setup):
 echo    http://localhost:82             - From this server machine
 echo    http://%LAN_IP%:82          - From any LAN device (direct IP)
-echo    http://achme.com               - After employee-hosts-setup.bat
-echo    http://www.achme.com           - After employee-hosts-setup.bat
-echo    http://IBM-SERVER:82           - After employee-hosts-setup.bat
+echo    http://achme.com               - After employee-hosts-setup.bat on employee PC
+echo    http://www.achme.com           - After employee-hosts-setup.bat on employee PC
+echo    http://IBM-SERVER:82           - After employee-hosts-setup.bat on employee PC
 echo.
 echo  Share employee-hosts-setup.bat with each employee PC.
 echo.

@@ -12,7 +12,7 @@ router.get("/", verifyToken, (req, res) => {
   else if (from) { sql += " AND report_date >= ?"; params.push(from); }
   else if (to) { sql += " AND report_date <= ?"; params.push(to); }
   if (status && status !== "All") { sql += " AND status = ?"; params.push(status); }
-  if (engineer && engineer !== "All") { sql += " AND technician = ?"; params.push(engineer); }
+  if (engineer && engineer !== "All") { sql += " AND (staff_name = ? OR technician = ?)"; params.push(engineer, engineer); }
   if (priority && priority !== "All") { sql += " AND priority = ?"; params.push(priority); }
   if (payment_status && payment_status !== "All") { sql += " AND payment_status = ?"; params.push(payment_status); }
   sql += " ORDER BY report_date DESC, id DESC";
@@ -157,12 +157,12 @@ router.post("/", verifyToken, (req, res) => {
 
   const sql = `
     INSERT INTO call_reports 
-    (session_id, client_name, customer_name, name, staff_name, executive_name, phone, mobile_number, email, location, location_city, call_sequence,
+    (session_id, client_name, customer_name, name, staff_name, technician, executive_name, phone, mobile_number, email, location, location_city, call_sequence,
      start_time, end_time, assigned_time, actual_duration, is_exceeded, remarks,
      report_date, complaint, description, km, petrol_charges, spare_parts_price, labour_charges, total_expenses,
      status, priority, call_type, service_type, payment_type, invoice_value, payment_status, duration_limit, contract_title,
      call_referrer, step2_completed, gst_number, company_name)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const params = [
@@ -170,7 +170,8 @@ router.post("/", verifyToken, (req, res) => {
     c.customer || c.client_name || "",
     c.customer || c.customer_name || "",
     c.customer || c.client_name || "",
-    c.staff_name || c.technician || "",
+    c.engineer || c.staff_name || c.technician || "",
+    c.engineer || c.staff_name || c.technician || "",
     c.executive_name || "",
     c.phone || c.mobile_number || "",
     c.mobile_number || c.phone || "",
@@ -238,7 +239,7 @@ router.put("/:id", verifyToken, (req, res) => {
 
     const sql = `
       UPDATE call_reports SET
-        client_name = ?, customer_name = ?, name = ?, staff_name = ?, executive_name = ?, phone = ?, mobile_number = ?, email = ?, location = ?, location_city = ?,
+        client_name = ?, customer_name = ?, name = ?, staff_name = ?, technician = ?, executive_name = ?, phone = ?, mobile_number = ?, email = ?, location = ?, location_city = ?,
         start_time = ?, end_time = ?, assigned_time = ?, actual_duration = ?, is_exceeded = ?,
         remarks = ?, complaint = ?, description = ?, km = ?, petrol_charges = ?, spare_parts_price = ?,
         labour_charges = ?, total_expenses = ?, status = ?, priority = ?, call_type = ?, service_type = ?,
@@ -250,6 +251,7 @@ router.put("/:id", verifyToken, (req, res) => {
       c.customer || c.client_name || "", 
       c.customer || c.customer_name || "", 
       c.customer || c.client_name || "", 
+      c.engineer || c.technician || c.staff_name || "", 
       c.engineer || c.technician || c.staff_name || "", 
       c.sales_person || c.executive_name || c.call_referrer || "",
       c.mobile_number || c.phone || "", 

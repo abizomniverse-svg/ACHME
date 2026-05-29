@@ -187,7 +187,7 @@ const DetailModal = ({ call, onClose, formatCurrency }) => {
             </div>
             <div>
               <h2 className="text-lg font-bold font-display text-foreground">Call Report Details</h2>
-              <p className="text-xs font-mono text-primary">{call.call_id || `#${call.id}`}</p>
+              <p className="text-xs font-mono text-primary">Call #{call.call_sequence || 1} ID: {String(call.id).padStart(3, '0')}</p>
             </div>
           </div>
           <X className="cursor-pointer hover:text-destructive transition-colors text-muted-foreground" onClick={onClose} />
@@ -305,7 +305,7 @@ const DetailModal = ({ call, onClose, formatCurrency }) => {
   );
 };
 
-const SessionLogsModal = ({ sessionId, callsList, onClose, formatCurrency }) => {
+const SessionLogsModal = ({ sessionId, callsList, onClose, formatCurrency, canEdit, onEditCall }) => {
   const sessionCalls = React.useMemo(() => {
     return callsList
       .filter(c => c.session_id === sessionId)
@@ -353,6 +353,15 @@ const SessionLogsModal = ({ sessionId, callsList, onClose, formatCurrency }) => 
                       <div className="flex items-center gap-2">
                         <Badge bg={sc.bg} text={sc.text} border={sc.border}>{c.status || "Pending"}</Badge>
                         <Badge bg={pc.bg} text={pc.text} border={pc.border}>{c.priority || "Medium"}</Badge>
+                        {canEdit && (
+                          <button
+                            onClick={() => onEditCall(c)}
+                            className="p-1 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors border border-accent/20 hover:scale-105 active:scale-95 flex items-center justify-center ml-1"
+                            title="Edit Details"
+                          >
+                            <Edit size={12} className="stroke-[2.5px]" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -436,6 +445,7 @@ const CallReport = () => {
   const canEditDelete = userRole === "admin" || userRole === "subadmin";
 
   const [activeTab, setActiveTab] = useState("calls");
+  const [collapsedMonths, setCollapsedMonths] = useState({});
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -813,6 +823,16 @@ const CallReport = () => {
     e.preventDefault();
     if (!step2Form.engineer) return alert("Engineer is required");
 
+    const payVal = parseFloat(step2Form.invoice_value);
+    if (isNaN(payVal) || payVal <= 0) {
+      return alert("Pay (invoice value) cannot be 0 or empty!");
+    }
+
+    const step2Duration = calculateStep2Duration();
+    if (step2Duration.exceeded && !step2Form.remarks?.trim()) {
+      return alert(`Duration exceeded by ${step2Duration.overflow} min. Please specify the reason why the time was exceeded in the remarks field!`);
+    }
+
     try {
       const payload = {
         engineer: step2Form.engineer,
@@ -825,7 +845,7 @@ const CallReport = () => {
         labour_charges: step2Form.labour_charges,
         remarks: step2Form.remarks,
         status: step2Form.status,
-        invoice_value: parseFloat(step2Form.invoice_value) || 0,
+        invoice_value: payVal,
       };
       await axios.put(`${API}/api/call-reports/${step2CallId}`, payload, getAuthConfig());
       setStep2ModalOpen(false);
@@ -925,7 +945,7 @@ const CallReport = () => {
       const matchSearch = !searchTerm || (c.customer_name || c.client_name || "").toLowerCase().includes(searchTerm.toLowerCase()) || (c.call_id || "").includes(searchTerm) || (c.engineer || c.staff_name || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchStatus = statusFilter === "All" || c.status === statusFilter;
       const matchPriority = priorityFilter === "All" || c.priority === priorityFilter;
-      const matchEngineer = engineerFilter === "All" || c.engineer === engineerFilter;
+      const matchEngineer = engineerFilter === "All" || (c.engineer || c.staff_name) === engineerFilter;
       const matchPayment = paymentStatusFilter === "All" || c.payment_status === paymentStatusFilter;
       return matchSearch && matchStatus && matchPriority && matchEngineer && matchPayment;
     }).sort((a, b) => {
@@ -935,6 +955,28 @@ const CallReport = () => {
       return (b.id || 0) - (a.id || 0);
     });
   }, [calls, searchTerm, statusFilter, priorityFilter, engineerFilter, paymentStatusFilter]);
+
+  const groupedCallsByMonth = useMemo(() => {
+    const groups = {};
+    filteredCalls.forEach(c => {
+      const date = new Date(c.report_date || c.created_at || Date.now());
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const monthLabel = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+      if (!groups[monthKey]) {
+        groups[monthKey] = {
+          key: monthKey,
+          label: monthLabel,
+          calls: [],
+          totalRevenue: 0,
+          totalExpenses: 0,
+        };
+      }
+      groups[monthKey].calls.push(c);
+      groups[monthKey].totalRevenue += parseFloat(c.invoice_value) || 0;
+      groups[monthKey].totalExpenses += parseFloat(c.total_expenses) || 0;
+    });
+    return Object.values(groups).sort((a, b) => b.key.localeCompare(a.key));
+  }, [filteredCalls]);
 
   const stats = useMemo(() => ({
     total: calls.length,
@@ -1293,12 +1335,11 @@ const CallReport = () => {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
                   <tr className="text-muted-foreground font-bold uppercase text-xs border-b border-border">
-                    <th className="px-4 py-3 text-left w-[80px]">ID</th>
+                    <th className="px-4 py-3 text-left w-[100px]">ID</th>
                     <th className="px-4 py-3 text-left">Customer</th>
-                    <th className="px-4 py-3 text-left w-[120px]">Engineer</th>
                     <th className="px-4 py-3 text-center w-[90px]">Status</th>
                     <th className="px-4 py-3 text-center w-[90px]">Type</th>
-                    <th className="px-4 py-3 text-center w-[90px]">Completion</th>
+                    <th className="px-4 py-3 text-center w-[110px]">Completion</th>
                     <th className="px-4 py-3 text-center w-[80px]">Duration</th>
                     <th className="px-4 py-3 text-center w-[90px]">Total</th>
                     <th className="px-4 py-3 text-center w-[90px]">Pay</th>
@@ -1308,99 +1349,149 @@ const CallReport = () => {
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan="11" className="text-center py-12 text-muted-foreground">Loading...</td></tr>
+                    <tr><td colSpan="10" className="text-center py-12 text-muted-foreground">Loading...</td></tr>
                   ) : filteredCalls.length === 0 ? (
-                    <tr><td colSpan="11" className="text-center py-12 text-muted-foreground">No call records found</td></tr>
+                    <tr><td colSpan="10" className="text-center py-12 text-muted-foreground">No call records found</td></tr>
                   ) : (
-                    filteredCalls.map((c) => {
-                      const sc = STATUS_COLORS[c.status] || STATUS_COLORS.Pending;
-                      const pc = PRIORITY_COLORS[c.priority] || PRIORITY_COLORS.Medium;
-                      const psc = PAYMENT_STATUS_COLORS[c.payment_status] || PAYMENT_STATUS_COLORS.Pending;
-                      const dur = c.actual_duration || 0;
-                      const isComplete = c.step2_completed;
+                    groupedCallsByMonth.map((group) => {
+                      const isCollapsed = collapsedMonths[group.key];
+                      const toggleCollapse = () => {
+                        setCollapsedMonths(prev => ({
+                          ...prev,
+                          [group.key]: !prev[group.key]
+                        }));
+                      };
                       return (
-                        <tr key={c.id} className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer" onDoubleClick={() => {
-                          setSelectedSessionId(c.session_id);
-                          setSessionLogsModalOpen(true);
-                        }}>
-                          <td className="px-4 py-3 font-mono font-bold text-xs text-primary">
-                            <div>{c.call_id || `#${c.id}`}</div>
-                            <div className="mt-1">
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                                Call #{c.call_sequence || 1}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <p className="font-semibold text-sm truncate text-foreground">{c.customer_name || c.client_name || "—"}</p>
-                            <p className="text-[10px] truncate text-muted-foreground">{c.location_city || c.location || ""}</p>
-                          </td>
-                          <td className="px-4 py-3 text-xs truncate text-muted-foreground">{c.engineer || c.staff_name || "—"}</td>
-                          <td className="px-4 py-3 text-center">
-                            <select
-                              value={c.status || "Pending"}
-                              onChange={(e) => handleInlineUpdate(c.id, { status: e.target.value })}
-                              className="px-2 py-1 text-[11px] font-bold rounded-full border outline-none cursor-pointer shadow-sm transition-all focus:ring-1 focus:ring-primary"
-                              style={{
-                                background: sc.bg,
-                                color: sc.text,
-                                borderColor: sc.border,
-                              }}
-                            >
-                              {STATUS_OPTIONS.map(opt => (
-                                <option key={opt} value={opt} style={{ background: "#ffffff", color: "#1a1a1a" }}>{opt}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-4 py-3 text-xs text-center text-muted-foreground">{c.call_type || "—"}</td>
-                          <td className="px-4 py-3 text-center">
-                            <select
-                              value={isComplete ? "Complete" : "Basic"}
-                              onChange={(e) => handleInlineUpdate(c.id, { step2_completed: e.target.value === "Complete" ? 1 : 0 })}
-                              className="px-2 py-1 text-[11px] font-bold rounded-full border outline-none cursor-pointer shadow-sm transition-all focus:ring-1 focus:ring-primary"
-                              style={{
-                                background: isComplete ? "hsl(var(--accent) / 0.1)" : "hsl(var(--primary) / 0.1)",
-                                color: isComplete ? "hsl(var(--accent))" : "hsl(var(--primary))",
-                                borderColor: isComplete ? "hsl(var(--accent) / 0.2)" : "hsl(var(--primary) / 0.2)",
-                              }}
-                            >
-                              <option value="Basic" style={{ background: "#ffffff", color: "#1a1a1a" }}>Basic</option>
-                              <option value="Complete" style={{ background: "#ffffff", color: "#1a1a1a" }}>Complete</option>
-                            </select>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.is_exceeded ? "bg-destructive/10 text-destructive" : "bg-accent/10 text-accent"}`}>
-                              {dur}m {c.is_exceeded ? "(+)" : ""}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.total_expenses ? formatCurrency(c.total_expenses) : "—"}</td>
-                          <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.invoice_value ? formatCurrency(c.invoice_value) : "—"}</td>
-                          <td className="px-4 py-3 text-center">
-                            <select
-                              value={c.payment_status || "Pending"}
-                              onChange={(e) => handleInlineUpdate(c.id, { payment_status: e.target.value })}
-                              className="px-2 py-1 text-[11px] font-bold rounded-full border outline-none cursor-pointer shadow-sm transition-all focus:ring-1 focus:ring-primary"
-                              style={{
-                                background: psc.bg,
-                                color: psc.text,
-                                borderColor: psc.border,
-                              }}
-                            >
-                              {PAYMENT_STATUS_OPTIONS.map(opt => (
-                                <option key={opt} value={opt} style={{ background: "#ffffff", color: "#1a1a1a" }}>{opt}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-1 justify-center items-center">
-                              <button onClick={() => setDetailCall(c)} className="p-1 rounded hover:bg-primary/10 transition-colors" title="View Details"><Eye size={14} className="text-primary" /></button>
-                              <button onClick={() => openFollowUpCall(c)} className="p-1 rounded hover:bg-purple-100 transition-colors text-purple-600" title="Add follow-up call to this session"><Plus size={14} /></button>
-                              {!isComplete && <button onClick={() => handleInlineUpdate(c.id, { step2_completed: 1 })} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors" title="Complete Details">Complete</button>}
-                              <button onClick={() => openEditModal(c)} className="p-1 rounded hover:bg-accent/10 transition-colors" title="Edit"><Edit size={14} className="text-accent" /></button>
-                              {canEditDelete && <button onClick={() => deleteCall(c.id)} className="p-1 rounded hover:bg-destructive/10 transition-colors" title="Delete"><Trash2 size={14} className="text-destructive" /></button>}
-                            </div>
-                          </td>
-                        </tr>
+                        <React.Fragment key={group.key}>
+                          <tr 
+                            onClick={toggleCollapse} 
+                            className="bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer border-b border-border select-none"
+                          >
+                            <td colSpan="10" className="px-4 py-3 font-semibold text-sm">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  {isCollapsed ? <ChevronDown size={16} className="text-primary" /> : <ChevronUp size={16} className="text-primary" />}
+                                  <span className="text-primary font-bold text-base font-display">{group.label}</span>
+                                  <span className="bg-primary/10 text-primary border border-primary/20 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono">
+                                    {group.calls.length} {group.calls.length === 1 ? 'Call' : 'Calls'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-6 text-xs text-muted-foreground mr-4">
+                                  <span className="font-medium">Total Expenses: <strong className="text-foreground">{formatCurrency(group.totalExpenses)}</strong></span>
+                                  <span className="font-medium">Total Revenue: <strong className="text-accent text-sm font-bold">{formatCurrency(group.totalRevenue)}</strong></span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                          {!isCollapsed && group.calls.map((c) => {
+                            const sc = STATUS_COLORS[c.status] || STATUS_COLORS.Pending;
+                            const pc = PRIORITY_COLORS[c.priority] || PRIORITY_COLORS.Medium;
+                            const psc = PAYMENT_STATUS_COLORS[c.payment_status] || PAYMENT_STATUS_COLORS.Pending;
+                            const dur = c.actual_duration || 0;
+                            const isComplete = c.step2_completed;
+                            return (
+                              <tr key={c.id} className="border-b border-border hover:bg-muted/30 transition-colors cursor-pointer" onDoubleClick={() => {
+                                setSelectedSessionId(c.session_id);
+                                setSessionLogsModalOpen(true);
+                              }}>
+                                <td className="px-4 py-3 font-mono font-bold text-xs text-primary">
+                                  <div className="text-primary font-black text-sm">Call #{c.call_sequence || 1}</div>
+                                  <div className="text-[10px] text-muted-foreground mt-0.5 font-medium">ID: {String(c.id).padStart(3, '0')}</div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <p className="font-semibold text-sm truncate text-foreground">{c.customer_name || c.client_name || "—"}</p>
+                                  <p className="text-[10px] truncate text-muted-foreground">{c.location_city || c.location || ""}</p>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <select
+                                    value={c.status || "Pending"}
+                                    onChange={(e) => handleInlineUpdate(c.id, { status: e.target.value })}
+                                    className="px-2 py-1 text-[11px] font-bold rounded-full border outline-none cursor-pointer shadow-sm transition-all focus:ring-1 focus:ring-primary"
+                                    style={{
+                                      background: sc.bg,
+                                      color: sc.text,
+                                      borderColor: sc.border,
+                                    }}
+                                  >
+                                    {STATUS_OPTIONS.map(opt => (
+                                      <option key={opt} value={opt} style={{ background: "#ffffff", color: "#1a1a1a" }}>{opt}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-center text-muted-foreground">{c.call_type || "—"}</td>
+                                <td className="px-4 py-3 text-center">
+                                  {isComplete ? (
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-800 border border-green-200">
+                                        Complete
+                                      </span>
+                                      {canEditDelete && (
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openStep2Form(c);
+                                          }} 
+                                          className="p-1 rounded-full bg-accent/10 text-accent hover:bg-accent/20 transition-colors border border-accent/20 hover:scale-105 active:scale-95 flex items-center justify-center"
+                                          title="Edit Details"
+                                        >
+                                          <Edit size={12} className="stroke-[2.5px]" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                        Basic
+                                      </span>
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openStep2Form(c);
+                                        }} 
+                                        className="p-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors border border-primary/20 hover:scale-105 active:scale-95 flex items-center justify-center"
+                                        title="Complete Details"
+                                      >
+                                        <Plus size={12} className="stroke-[3px]" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.is_exceeded ? "bg-red-100 text-red-700 border border-red-200" : "bg-accent/10 text-accent"}`}>
+                                    {dur}m {c.is_exceeded ? `(+${c.actual_duration - (c.duration_limit || c.assigned_time || 30)}m Extra)` : ""}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.total_expenses ? formatCurrency(c.total_expenses) : "—"}</td>
+                                <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.invoice_value ? formatCurrency(c.invoice_value) : "—"}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <select
+                                    value={c.payment_status || "Pending"}
+                                    onChange={(e) => handleInlineUpdate(c.id, { payment_status: e.target.value })}
+                                    className="px-2 py-1 text-[11px] font-bold rounded-full border outline-none cursor-pointer shadow-sm transition-all focus:ring-1 focus:ring-primary"
+                                    style={{
+                                      background: psc.bg,
+                                      color: psc.text,
+                                      borderColor: psc.border,
+                                    }}
+                                  >
+                                    {PAYMENT_STATUS_OPTIONS.map(opt => (
+                                      <option key={opt} value={opt} style={{ background: "#ffffff", color: "#1a1a1a" }}>{opt}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex gap-1 justify-center items-center">
+                                    <button onClick={() => setDetailCall(c)} className="p-1 rounded hover:bg-primary/10 transition-colors" title="View Details"><Eye size={14} className="text-primary" /></button>
+                                    <button onClick={() => openFollowUpCall(c)} className="p-1 rounded hover:bg-purple-100 transition-colors text-purple-600" title="Add follow-up call to this session"><Plus size={14} /></button>
+                                    {(!isComplete || canEditDelete) && <button onClick={() => openStep2Form(c)} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors" title={isComplete ? "Edit Details" : "Complete Details"}>{isComplete ? "Edit Details" : "Complete"}</button>}
+                                    <button onClick={() => openEditModal(c)} className="p-1 rounded hover:bg-accent/10 transition-colors" title="Edit"><Edit size={14} className="text-accent" /></button>
+                                    {canEditDelete && <button onClick={() => deleteCall(c.id)} className="p-1 rounded hover:bg-destructive/10 transition-colors" title="Delete"><Trash2 size={14} className="text-destructive" /></button>}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
                       );
                     })
                   )}
@@ -1686,6 +1777,12 @@ const CallReport = () => {
             setSelectedSessionId(null);
           }}
           formatCurrency={formatCurrency}
+          canEdit={canEditDelete}
+          onEditCall={(call) => {
+            setSessionLogsModalOpen(false);
+            setSelectedSessionId(null);
+            openStep2Form(call);
+          }}
         />
       )}
 
@@ -2041,7 +2138,9 @@ const CallReport = () => {
                   <Clock size={18} className="text-amber-500" />
                 </div>
                 <div>
-                  <h2 className="text-base sm:text-lg font-bold font-display text-foreground">Complete Call Details</h2>
+                  <h2 className="text-base sm:text-lg font-bold font-display text-foreground">
+                    Call #{calls.find(c => c.id === step2CallId)?.call_sequence || 1} ID: {String(step2CallId).padStart(3, '0')}
+                  </h2>
                   <p className="text-[10px] sm:text-xs text-muted-foreground">Step 2: Engineer assignment & expenses</p>
                 </div>
               </div>
@@ -2148,8 +2247,19 @@ const CallReport = () => {
                 </FormField>
               </div>
 
-              <FormField label="Remarks" icon={MessageSquare}>
-                <textarea value={step2Form.remarks} onChange={e => setStep2Form({ ...step2Form, remarks: e.target.value })} className={`${inputBase} resize-none`} placeholder="Additional notes" rows={2} />
+              <FormField 
+                label={step2Duration.exceeded ? "Why was the time exceeded? (Remarks Required)*" : "Remarks"} 
+                icon={MessageSquare}
+                required={step2Duration.exceeded}
+              >
+                <textarea 
+                  value={step2Form.remarks} 
+                  onChange={e => setStep2Form({ ...step2Form, remarks: e.target.value })} 
+                  className={`${inputBase} resize-none ${step2Duration.exceeded ? "border-red-300 focus:border-red-500 focus:ring-red-500 bg-red-50/10" : ""}`} 
+                  placeholder={step2Duration.exceeded ? "Please explain why the service time exceeded the limit..." : "Additional notes"} 
+                  rows={2} 
+                  required={step2Duration.exceeded}
+                />
               </FormField>
 
               <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-border">

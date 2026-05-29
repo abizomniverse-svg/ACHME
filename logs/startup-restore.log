@@ -112,3 +112,17 @@
 ├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
 │ 0  │ achme-backend    │ default     │ 1.0.0   │ fork    │ 30996    │ 0      │ 0    │ waiting … │ 0%       │ 0b       │ thana    │ disabled │
 └────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[Fri 05/29/2026 19:38:15.55] Startup restore running from D:\ACHME_COMUNICATION-main 
+[Fri 05/29/2026 19:38:18.04] Detected LAN IP: 192.168.1.110 
+[Fri 05/29/2026 19:38:18.04] nginx.conf written with LAN IP 192.168.1.110 
+[Fri 05/29/2026 19:38:18.12] PM2: pm2 (HOME: C:\Users\thana\.pm2) 
+[PM2] Spawning PM2 daemon with pm2_home=C:\Users\thana\.pm2
+[PM2] PM2 Successfully daemonized
+[PM2] Resurrecting
+[PM2] Restoring processes located in C:\Users\thana\.pm2\dump.pm2
+[PM2] Process D:\ACHME_COMUNICATION-main\backend\server.js restored
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ achme-backend    │ default     │ 1.0.0   │ fork    │ 6444     │ 1s     │ 0    │ online    │ 46.9%    │ 71.2mb   │ thana    │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘

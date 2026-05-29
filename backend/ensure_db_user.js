@@ -13,6 +13,14 @@ const rootPasswords = [
   process.env.DB_ROOT_PASS,
   "admin@123",
   "",
+  "root",
+  "password",
+  "mysql",
+  "admin",
+  "123456",
+  "Root@123",
+  "root@123",
+  "Admin@123",
 ].filter((value, index, list) => value !== undefined && list.indexOf(value) === index);
 
 function escapeIdentifier(value) {

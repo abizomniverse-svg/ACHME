@@ -313,10 +313,23 @@ exit /b 0
 :: This is for the SERVER machine itself. Employees use employee-hosts-setup.bat
 :: ====================================================================
 :sub_update_hosts_server
-set "ACTIVE_IP="
-for /f "usebackq tokens=*" %%I in (
-  `powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress"`
-) do set "ACTIVE_IP=%%I"
+set "ACTIVE_IP=127.0.0.1"
+if exist "%ROOT%\.last-build-ip" (
+  set /p ACTIVE_IP=<"%ROOT%\.last-build-ip"
+)
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (
+  set "CANDIDATE=%%a"
+  set "CANDIDATE=!CANDIDATE: =!"
+  set "PREFIX1=!CANDIDATE:~0,4!"
+  set "PREFIX2=!CANDIDATE:~0,8!"
+  if not "!PREFIX1!"=="127." (
+    if not "!PREFIX2!"=="169.254." (
+      set "ACTIVE_IP=!CANDIDATE!"
+      goto :hosts_ip_done
+    )
+  )
+)
+:hosts_ip_done
 if "%ACTIVE_IP%"=="" set "ACTIVE_IP=127.0.0.1"
 
 :: CRITICAL: Map ALL names to the REAL LAN IP (not 127.0.0.1!)
@@ -341,7 +354,7 @@ if exist "%ROOT%\employee-hosts-setup.bat" (
   powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$f = '%ROOT%\employee-hosts-setup.bat';" ^
     "$c = [System.IO.File]::ReadAllText($f);" ^
-    "$c = $c -replace 'set ""SERVER_IP=.*""', ('set ""SERVER_IP=%ACTIVE_IP%""');" ^
+    "$c = $c -replace '(?m)^set\s+""?SERVER_IP""?=\S*', 'set ""SERVER_IP=%ACTIVE_IP%""';" ^
     "[System.IO.File]::WriteAllText($f, $c);" >nul 2>&1
 )
 
@@ -349,10 +362,23 @@ ipconfig /flushdns >nul
 exit /b 0
 
 :sub_update_env
-set "ACTIVE_IP="
-for /f "usebackq tokens=*" %%I in (
-  `powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress"`
-) do set "ACTIVE_IP=%%I"
+set "ACTIVE_IP=127.0.0.1"
+if exist "%ROOT%\.last-build-ip" (
+  set /p ACTIVE_IP=<"%ROOT%\.last-build-ip"
+)
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (
+  set "CANDIDATE=%%a"
+  set "CANDIDATE=!CANDIDATE: =!"
+  set "PREFIX1=!CANDIDATE:~0,4!"
+  set "PREFIX2=!CANDIDATE:~0,8!"
+  if not "!PREFIX1!"=="127." (
+    if not "!PREFIX2!"=="169.254." (
+      set "ACTIVE_IP=!CANDIDATE!"
+      goto :env_ip_done
+    )
+  )
+)
+:env_ip_done
 if "%ACTIVE_IP%"=="" set "ACTIVE_IP=127.0.0.1"
 
 if "%SILENT_MODE%"=="0" echo   Active Local IP detected: %ACTIVE_IP%

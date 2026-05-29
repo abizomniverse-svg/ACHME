@@ -1,69 +1,155 @@
 @echo off
 setlocal enabledelayedexpansion
-title ACHME CRM - Starting...
+title ACHME CRM - One-Click Complete Setup ^& Auto-Boot
+color 0B
 
+:: ====================================================================
+:: CONFIGURATION — All paths, ports, and settings
+:: ====================================================================
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
 set "BACKEND_PORT=5000"
 set "FRONTEND_PORT=82"
 set "NGINX_DIR=C:\nginx"
+set "NGINX_ZIP=%ROOT%\nginx-temp.zip"
 set "LOG_DIR=%ROOT%\logs"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+set "LOGFILE=%LOG_DIR%\start-servers.log"
+echo. > "%LOGFILE%"
+echo [%DATE% %TIME%] ========== ACHME CRM One-Click Setup started ========== >> "%LOGFILE%"
+set "S=10"
 
 :: ====================================================================
-:: STEP 1 — Admin check (everything needs admin to work)
+:: ADMIN AUTO-ELEVATION (required for services, firewall, schtasks)
 :: ====================================================================
 net session >nul 2>&1
 if errorlevel 1 (
-  echo.
   echo  [!] Requesting Administrator privileges...
   powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
   exit /b 0
 )
 
+:: ====================================================================
+:: DETECT LAN IP AND HOSTNAME
+:: ====================================================================
+set "LAN_IP=127.0.0.1"
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (
+  set "CANDIDATE=%%a"
+  set "CANDIDATE=!CANDIDATE: =!"
+  set "PREFIX1=!CANDIDATE:~0,4!"
+  set "PREFIX2=!CANDIDATE:~0,8!"
+  if not "!PREFIX1!"=="127." (
+    if not "!PREFIX2!"=="169.254." (
+      set "LAN_IP=!CANDIDATE!"
+      goto :got_ip
+    )
+  )
+)
+:got_ip
+set "PC_HOSTNAME=localhost"
+for /f "usebackq tokens=*" %%h in (`hostname`) do set "PC_HOSTNAME=%%h"
+if "%PC_HOSTNAME%"=="" set "PC_HOSTNAME=localhost"
+echo %LAN_IP%>"%ROOT%\.last-build-ip"
+
 cls
 color 0B
 echo.
-echo  =====================================================================
-echo    ACHME CRM - STARTING UP...
-echo  =====================================================================
+echo  ===========================================================================
+echo     ACHME CRM  ^|  ONE-CLICK AUTO-DEPLOY ^& AUTO-BOOT
+echo  ===========================================================================
+echo.
+echo     Server hostname : %PC_HOSTNAME%
+echo     Server LAN IP   : %LAN_IP%
+echo     Prerequisites   : Node.js + MySQL (everything else auto-installs)
+echo.
+echo  ===========================================================================
 echo.
 
 :: ====================================================================
-:: STEP 2 — Detect LAN IP
+:: STEP 1/10 — MySQL check + auto-start
 :: ====================================================================
-echo  [1/8] Detecting LAN IP...
-set "LAN_IP="
-for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress"`) do set "LAN_IP=%%i"
-if "%LAN_IP%"=="" set "LAN_IP=127.0.0.1"
-echo     Detected IP: %LAN_IP%
+echo  [1/%S%] Checking MySQL...
+echo [%DATE% %TIME%] Step 1: MySQL check >> "%LOGFILE%"
 
-:: ====================================================================
-:: STEP 3 — Freeze IP to static + update hosts + env (synchronously)
-:: ====================================================================
-echo  [2/8] Checking if IP is Static or Dynamic...
-set "IP_IS_DYNAMIC=0"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$a = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1; if ($a -and $a.Dhcp -eq 'Enabled') { exit 1 } else { exit 0 }" >nul 2>&1
-if errorlevel 1 (
-  set "IP_IS_DYNAMIC=1"
-  echo     IP is DYNAMIC - freezing to Static now...
-  call "%ROOT%\manage-local-ip.bat" /silent
-  echo     IP frozen to Static: %LAN_IP%
-) else (
-  echo     IP is already STATIC: %LAN_IP%
-  :: Still update hosts file in case IP changed
-  call "%ROOT%\manage-local-ip.bat" /update-hosts-only
+set "MYSQL_OK=0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -LocalPort 3306 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >nul 2>&1
+if not errorlevel 1 set "MYSQL_OK=1"
+
+if "%MYSQL_OK%"=="1" (
+  echo         MySQL already running on port 3306. [OK]
+  goto :mysql_done
 )
 
+echo         MySQL not running. Starting service...
+net start MySQL80 >nul 2>&1
+net start MySQL >nul 2>&1
+net start MySQL57 >nul 2>&1
+net start MySQL84 >nul 2>&1
+net start MySQL90 >nul 2>&1
+net start mysql >nul 2>&1
+net start MariaDB >nul 2>&1
+
+:: Wait and re-check
+timeout /t 4 /nobreak >nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -LocalPort 3306 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >nul 2>&1
+if errorlevel 1 (
+  echo         [FAIL] MySQL is not running on port 3306!
+  echo         Please install/start MySQL manually and re-run this script.
+  echo         Download: https://dev.mysql.com/downloads/installer/
+  echo [%DATE% %TIME%] FAIL: MySQL not running >> "%LOGFILE%"
+  pause
+  goto :fail
+)
+echo         MySQL started. [OK]
+
+:mysql_done
+:: Set MySQL to auto-start on boot (tries all known service names)
+for %%m in (MySQL80 MySQL MySQL57 MySQL84 MySQL90 mysql MariaDB) do (
+  sc query %%m >nul 2>&1
+  if not errorlevel 1 sc config %%m start=auto >nul 2>&1
+)
+echo [%DATE% %TIME%] MySQL OK, set to auto-start >> "%LOGFILE%"
+
 :: ====================================================================
-:: STEP 4 — Write backend .env
+:: STEP 2/10 — Node.js check
 :: ====================================================================
-echo  [3/8] Writing backend .env...
+echo  [2/%S%] Checking Node.js...
+echo [%DATE% %TIME%] Step 2: Node.js check >> "%LOGFILE%"
+
+where node >nul 2>&1
+if errorlevel 1 (
+  echo         [FAIL] Node.js not found! Install Node.js first.
+  echo         Download: https://nodejs.org/
+  echo [%DATE% %TIME%] FAIL: Node.js not found >> "%LOGFILE%"
+  pause
+  goto :fail
+)
+for /f "tokens=*" %%v in ('node --version 2^>nul') do echo         Node.js %%v [OK]
+
+:: Save Node.js directory for boot startup (SYSTEM account needs this)
+for /f "tokens=*" %%n in ('where node 2^>nul') do (
+  set "NODE_EXE_PATH=%%n"
+  goto :save_node_dir
+)
+:save_node_dir
+for %%f in ("%NODE_EXE_PATH%") do (
+  set "NODE_DIR_PATH=%%~dpf"
+  echo %%~dpf>"%ROOT%\.achme-node-dir"
+)
+echo [%DATE% %TIME%] Node.js at: %NODE_DIR_PATH% >> "%LOGFILE%"
+
+:: ====================================================================
+:: STEP 3/10 — Write .env config files
+:: ====================================================================
+echo  [3/%S%] Writing config files...
+echo [%DATE% %TIME%] Step 3: Config files >> "%LOGFILE%"
+
+:: Backend .env
 (
-echo # ACHME CRM Backend - Auto-generated by start-servers.bat
+echo # Auto-generated by start-servers.bat on %DATE% %TIME%
 echo PORT=%BACKEND_PORT%
 echo NODE_ENV=production
-echo ALLOWED_ORIGIN=http://localhost:%FRONTEND_PORT%,http://127.0.0.1:%FRONTEND_PORT%,http://%LAN_IP%:%FRONTEND_PORT%,http://achme.com,http://achme.com:82,http://www.achme.com,http://www.achme.com:82,http://IBM-SERVER:82,http://IBM-SERVER.achme.com:82
+echo ALLOWED_ORIGIN=*
 echo DEFAULT_TEST_PASSWORD=Test@12345
 echo DB_HOST=127.0.0.1
 echo DB_PORT=3306
@@ -75,288 +161,507 @@ echo SMTP_PORT=587
 echo EMAIL_USER=thanan757@gmail.com
 echo EMAIL_PASS=ghjv omqm hwji kerq
 echo JWT_SECRET=97418d0c15d57ade768586b8501e35d34e5a5277f2a0570b6d5b47ef93f5b33e88b80045c60efd77e6edcbb015dbe46cf6747ce1dd8f11361f3e426ddc677c9a
-) > "%ROOT%\backend\.env"
+) >"%ROOT%\backend\.env"
 
-:: Write frontend .env (uses LAN IP so all devices can reach API)
+:: Frontend .env (empty API URL so React uses window.location.origin via nginx)
 (
-echo REACT_APP_API_URL=http://%LAN_IP%:%BACKEND_PORT%
+echo REACT_APP_API_URL=
 echo REACT_APP_API_PROXY=http://%LAN_IP%:%BACKEND_PORT%
-) > "%ROOT%\frontend\.env"
+) >"%ROOT%\frontend\.env"
 (
-echo REACT_APP_API_URL=http://%LAN_IP%:%BACKEND_PORT%
+echo REACT_APP_API_URL=
 echo REACT_APP_API_PROXY=http://%LAN_IP%:%BACKEND_PORT%
-) > "%ROOT%\frontend\.env.production"
-echo     .env files written.
+) >"%ROOT%\frontend\.env.production"
+echo         Config files written. [OK]
 
 :: ====================================================================
-:: STEP 5 — Ensure Node.js and MySQL
+:: STEP 4/10 — Backend setup (npm install + DB user + DB schema)
 :: ====================================================================
-echo  [4/8] Checking Node.js and MySQL...
-where node >nul 2>&1
-if errorlevel 1 (
-  echo     Node.js not found - installing via winget...
-  where winget >nul 2>&1
-  if not errorlevel 1 winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements >nul 2>&1
-)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -LocalPort 3306 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >nul 2>&1
-if errorlevel 1 (
-  echo     Starting MySQL...
-  for %%S in (MySQL80 MySQL MySQL57 mysql) do (
-    net start %%S >nul 2>&1
-    if not errorlevel 1 goto :mysql_started
-  )
-  echo     [WARN] MySQL may not be running. Check MySQL service.
-)
-:mysql_started
-echo     Node.js and MySQL OK.
+echo  [4/%S%] Backend setup (npm install + database)...
+echo [%DATE% %TIME%] Step 4: Backend setup >> "%LOGFILE%"
 
-:: ====================================================================
-:: STEP 6 — Install npm deps + DB init
-:: ====================================================================
-echo  [5/8] Installing backend dependencies...
 cd /d "%ROOT%\backend"
-call npm install >> "%LOG_DIR%\start-servers.log" 2>&1
-if errorlevel 1 goto :fail
-call npx puppeteer browsers install chrome >nul 2>&1
-call node ensure_db_user.js >> "%LOG_DIR%\start-servers.log" 2>&1
-if errorlevel 1 goto :fail
-call node db_init.js >> "%LOG_DIR%\start-servers.log" 2>&1
-if errorlevel 1 goto :fail
+call npm install --legacy-peer-deps >>"%LOGFILE%" 2>&1
+if errorlevel 1 (
+  echo         [FAIL] Backend npm install failed. Check %LOGFILE%
+  goto :fail
+)
+echo         npm install complete.
 
-echo  [6/8] Installing frontend dependencies...
+:: Create database user (tries common root passwords automatically)
+call node ensure_db_user.js >>"%LOGFILE%" 2>&1
+if errorlevel 1 (
+  echo.
+  echo  ===========================================================================
+  echo    MySQL root password required to create the ACHME database user.
+  echo    Please enter your MySQL root password below:
+  echo  ===========================================================================
+  echo.
+  set /p "MYSQL_ROOT_PWD=  MySQL root password: "
+  set "MYSQL_ROOT_PASSWORD=!MYSQL_ROOT_PWD!"
+  call node ensure_db_user.js >>"%LOGFILE%" 2>&1
+  if errorlevel 1 (
+    echo         [FAIL] Could not create database user. Check MySQL root password.
+    echo         See log: %LOGFILE%
+    pause
+    goto :fail
+  )
+)
+echo         DB user ready.
+
+:: Initialize database schema
+call node db_init.js >>"%LOGFILE%" 2>&1
+if errorlevel 1 ( echo         [WARN] db_init had warnings - check log )
+echo         Backend setup [OK]
+
+:: ====================================================================
+:: STEP 5/10 — Install PM2 globally (if not present)
+:: ====================================================================
+echo  [5/%S%] Checking PM2...
+echo [%DATE% %TIME%] Step 5: PM2 check >> "%LOGFILE%"
+
+where pm2 >nul 2>&1
+if errorlevel 1 (
+  echo         PM2 not found — installing globally...
+  call npm install -g pm2 >>"%LOGFILE%" 2>&1
+  if errorlevel 1 (
+    echo         [FAIL] PM2 installation failed
+    goto :fail
+  )
+  :: Refresh PATH to pick up newly installed pm2
+  for /f "tokens=*" %%p in ('npm config get prefix 2^>nul') do set "NPM_PREFIX=%%p"
+  set "PATH=!NPM_PREFIX!;%PATH%"
+  echo         PM2 installed. [OK]
+) else (
+  echo         PM2 already installed. [OK]
+)
+
+:: Save npm global prefix path for boot startup (SYSTEM account needs this)
+for /f "tokens=*" %%p in ('npm config get prefix 2^>nul') do (
+  echo %%p>"%ROOT%\.achme-npm-prefix"
+  echo [%DATE% %TIME%] npm prefix: %%p >> "%LOGFILE%"
+)
+
+:: Save PM2 home directory for boot startup
+echo %USERPROFILE%\.pm2>"%ROOT%\.achme-pm2-home"
+echo [%DATE% %TIME%] PM2 home: %USERPROFILE%\.pm2 >> "%LOGFILE%"
+
+:: ====================================================================
+:: STEP 6/10 — Frontend setup (npm install + build)
+:: ====================================================================
+echo  [6/%S%] Frontend setup...
+echo [%DATE% %TIME%] Step 6: Frontend setup >> "%LOGFILE%"
+
 cd /d "%ROOT%\frontend"
-call npm install >> "%LOG_DIR%\start-servers.log" 2>&1
-if errorlevel 1 goto :fail
+call npm install --legacy-peer-deps >>"%LOGFILE%" 2>&1
+if errorlevel 1 (
+  echo         [FAIL] Frontend npm install failed. Check %LOGFILE%
+  goto :fail
+)
+echo         npm install complete.
 
-:: ====================================================================
-:: STEP 7 — Build frontend (skip if already built with same IP)
-:: ====================================================================
-echo  [7/8] Building frontend...
-
-:: Check if build exists and IP matches last build
-set "NEED_BUILD=1"
-set "BUILD_IP_FILE=%ROOT%\.last-build-ip"
 if exist "%ROOT%\frontend\build\index.html" (
-  if exist "%BUILD_IP_FILE%" (
-    set "LAST_IP="
-    for /f "usebackq tokens=*" %%v in ("%BUILD_IP_FILE%") do set "LAST_IP=%%v"
-    if "!LAST_IP!"=="%LAN_IP%" (
-      set "NEED_BUILD=0"
-      echo     Build found for IP %LAN_IP% - skipping rebuild.
+  echo         Existing frontend build found - using cached build. [OK]
+  echo         (Delete frontend\build folder to force a rebuild^)
+) else (
+  echo         Building frontend... (this takes 1-3 minutes, please wait^)
+  call npm run build >>"%LOGFILE%" 2>&1
+  if errorlevel 1 (
+    echo         [FAIL] npm run build failed. Check %LOGFILE%
+    goto :fail
+  )
+  echo         Frontend built. [OK]
+)
+
+:: ====================================================================
+:: STEP 7/10 — Nginx auto-install + config + deploy + start
+:: ====================================================================
+echo  [7/%S%] Setting up Nginx...
+echo [%DATE% %TIME%] Step 7: Nginx setup >> "%LOGFILE%"
+
+:: Download + extract if nginx not present
+if not exist "%NGINX_DIR%\nginx.exe" (
+  echo         Nginx not found at C:\nginx — downloading automatically...
+
+  set "NGINX_URL=https://nginx.org/download/nginx-1.24.0.zip"
+  echo         Downloading from !NGINX_URL! ...
+  curl.exe -L -o "%NGINX_ZIP%" "!NGINX_URL!" >>"%LOGFILE%" 2>&1
+  if not exist "%NGINX_ZIP%" (
+    echo         [FAIL] Nginx download failed. Check internet connection.
+    echo         You can manually download nginx and extract to C:\nginx
+    goto :skip_nginx
+  )
+
+  echo         Extracting...
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%NGINX_ZIP%' -DestinationPath '%ROOT%\nginx-temp-extract' -Force" >>"%LOGFILE%" 2>&1
+
+  for /d %%d in ("%ROOT%\nginx-temp-extract\nginx-*") do (
+    if not exist "%NGINX_DIR%" (
+      move "%%d" "%NGINX_DIR%" >nul 2>&1
     ) else (
-      echo     IP changed from !LAST_IP! to %LAN_IP% - rebuilding...
+      xcopy /E /I /Y "%%d\*" "%NGINX_DIR%\" >nul 2>&1
     )
   )
-) else (
-  echo     No build found - building for first time...
+
+  :: Cleanup temp files
+  if exist "%NGINX_ZIP%" del "%NGINX_ZIP%" >nul 2>&1
+  if exist "%ROOT%\nginx-temp-extract" rd /s /q "%ROOT%\nginx-temp-extract" >nul 2>&1
+
+  if exist "%NGINX_DIR%\nginx.exe" (
+    echo         Nginx downloaded and installed to C:\nginx [OK]
+  ) else (
+    echo         [FAIL] Nginx extraction failed.
+    echo         Please manually download nginx and extract to C:\nginx
+    goto :skip_nginx
+  )
 )
 
-if "%NEED_BUILD%"=="1" (
-  cd /d "%ROOT%\frontend"
-  call npm run build >> "%LOG_DIR%\start-servers.log" 2>&1
-  if errorlevel 1 goto :fail
-  echo %LAN_IP%> "%BUILD_IP_FILE%"
-  echo     Frontend built successfully.
-)
-
-:: Copy build to Nginx html directory
+:: Create required directories
+if not exist "%NGINX_DIR%\logs" mkdir "%NGINX_DIR%\logs"
 if not exist "%NGINX_DIR%\html\achme" mkdir "%NGINX_DIR%\html\achme"
+
+:: Write nginx.conf
+call :write_nginx_conf
+echo         nginx.conf written.
+
+:: Copy frontend build to nginx document root
 xcopy /E /I /Y "%ROOT%\frontend\build\*" "%NGINX_DIR%\html\achme\" >nul 2>&1
+echo         Frontend deployed to Nginx.
 
-:: Open firewall ports
-netsh advfirewall firewall add rule name="ACHME CRM Nginx Port 82"     dir=in action=allow protocol=TCP localport=82   >nul 2>&1
-netsh advfirewall firewall add rule name="ACHME CRM Backend Port 5000" dir=in action=allow protocol=TCP localport=5000 >nul 2>&1
+:: Kill any old nginx then start fresh as background process
+taskkill /F /IM nginx.exe >nul 2>&1
+timeout /t 2 /nobreak >nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'C:\nginx\nginx.exe' -WorkingDirectory 'C:\nginx' -WindowStyle Hidden"
+timeout /t 3 /nobreak >nul
+echo         Nginx started on port %FRONTEND_PORT%. [OK]
 
-:: ====================================================================
-:: Write Nginx config — listens on ALL interfaces, serves ALL names
-:: ====================================================================
-if exist "%NGINX_DIR%\nginx.exe" (
-  (
-  echo worker_processes 1;
-  echo.
-  echo events {
-  echo     worker_connections 1024;
-  echo }
-  echo.
-  echo http {
-  echo     include       mime.types;
-  echo     default_type  application/octet-stream;
-  echo     sendfile        on;
-  echo     keepalive_timeout 65;
-  echo     access_log  logs/achme_access.log;
-  echo     error_log   logs/achme_error.log;
-  echo.
-  echo     upstream achme_backend {
-  echo         server 127.0.0.1:%BACKEND_PORT%;
-  echo         keepalive 32;
-  echo     }
-  echo.
-  echo     server {
-  echo         listen 0.0.0.0:82;
-  echo         server_name achme.com www.achme.com IBM-SERVER IBM-SERVER.achme.com %LAN_IP% 127.0.0.1 localhost _;
-  echo.
-  echo         root %NGINX_DIR%/html/achme;
-  echo         index index.html;
-  echo.
-  echo         location / {
-  echo             try_files $uri $uri/ /index.html;
-  echo         }
-  echo.
-  echo         location = /index.html {
-  echo             add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
-  echo             expires -1;
-  echo         }
-  echo.
-  echo         location /api/ {
-  echo             proxy_pass http://achme_backend/api/;
-  echo             proxy_http_version 1.1;
-  echo             proxy_set_header Host              $host;
-  echo             proxy_set_header X-Real-IP         $remote_addr;
-  echo             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-  echo             proxy_set_header X-Forwarded-Proto $scheme;
-  echo             proxy_connect_timeout  120s;
-  echo             proxy_send_timeout     120s;
-  echo             proxy_read_timeout     120s;
-  echo             client_max_body_size   50M;
-  echo         }
-  echo.
-  echo         location /socket.io/ {
-  echo             proxy_pass http://achme_backend/socket.io/;
-  echo             proxy_http_version 1.1;
-  echo             proxy_set_header Upgrade    $http_upgrade;
-  echo             proxy_set_header Connection "upgrade";
-  echo             proxy_set_header Host              $host;
-  echo             proxy_set_header X-Real-IP         $remote_addr;
-  echo             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-  echo             proxy_connect_timeout  60s;
-  echo             proxy_send_timeout     60s;
-  echo             proxy_read_timeout     3600s;
-  echo         }
-  echo.
-  echo         location /nginx-health {
-  echo             return 200 "Nginx OK - ACHME CRM\n";
-  echo             add_header Content-Type text/plain;
-  echo         }
-  echo.
-  echo         location ~* \.(js^|css^|png^|jpg^|jpeg^|gif^|ico^|svg^|woff^|woff2^|ttf^|eot^)$ {
-  echo             expires 1y;
-  echo             add_header Cache-Control "public, immutable";
-  echo             access_log off;
-  echo         }
-  echo.
-  echo         location ~ /\. {
-  echo             deny all;
-  echo         }
-  echo     }
-  echo }
-  ) > "%NGINX_DIR%\conf\nginx.conf"
-)
-
-:: Start or reload Nginx
-if exist "%NGINX_DIR%\nginx.exe" (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -State Listen -LocalPort 82 -ErrorAction SilentlyContinue) { Start-Process '%NGINX_DIR%\nginx.exe' -ArgumentList '-s','reload' -WorkingDirectory '%NGINX_DIR%' -WindowStyle Hidden } else { Start-Process '%NGINX_DIR%\nginx.exe' -WorkingDirectory '%NGINX_DIR%' -WindowStyle Hidden; Start-Sleep 3 }" >nul 2>&1
-)
+:skip_nginx
 
 :: ====================================================================
-:: STEP 8 — Start PM2 backend
+:: STEP 8/10 — Start PM2 backend
 :: ====================================================================
-echo  [8/8] Starting backend (PM2)...
+echo  [8/%S%] Starting backend with PM2...
+echo [%DATE% %TIME%] Step 8: PM2 backend start >> "%LOGFILE%"
 cd /d "%ROOT%\backend"
+
+:: Make sure pm2 is in PATH
 where pm2 >nul 2>&1
-if errorlevel 1 call npm install -g pm2 >nul 2>&1
+if errorlevel 1 (
+  for /f "tokens=*" %%p in ('npm config get prefix 2^>nul') do set "NPM_PREFIX=%%p"
+  set "PATH=!NPM_PREFIX!;%PATH%"
+)
+
+:: Stop old instance, start fresh
 pm2 delete achme-backend >nul 2>&1
 if exist "%ROOT%\backend\ecosystem.production.config.js" (
-  pm2 start ecosystem.production.config.js >nul 2>&1
+  pm2 start ecosystem.production.config.js >>"%LOGFILE%" 2>&1
 ) else (
-  pm2 start server.js --name achme-backend --env production >nul 2>&1
+  pm2 start server.js --name achme-backend --env production >>"%LOGFILE%" 2>&1
 )
 pm2 save >nul 2>&1
+echo         PM2 backend started. [OK]
 
 :: ====================================================================
-:: Run install-boot-startup in background (registers auto-start tasks)
+:: STEP 9/10 — Firewall + Auto-boot + Hosts file
 :: ====================================================================
-start "" /b powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath '%ROOT%\install-boot-startup.bat' -ArgumentList '/silent' -Verb RunAs -WindowStyle Hidden" >nul 2>&1
+echo  [9/%S%] Configuring auto-boot, firewall, and hosts...
+echo [%DATE% %TIME%] Step 9: Auto-boot setup >> "%LOGFILE%"
+
+:: --- Firewall rules ---
+netsh advfirewall firewall add rule name="ACHME CRM Port 82"   dir=in action=allow protocol=TCP localport=82   >nul 2>&1
+netsh advfirewall firewall add rule name="ACHME CRM Port 5000" dir=in action=allow protocol=TCP localport=5000 >nul 2>&1
+echo         Firewall rules added.
+
+:: --- Auto-boot: Register TWO scheduled tasks for maximum reliability ---
+:: Task 1: SYSTEM-level boot (starts BEFORE user login — fastest!)
+if exist "%ROOT%\achme-startup.bat" (
+  schtasks /create /tn "ACHME_CRM_AutoBoot" /tr "\"%ROOT%\achme-startup.bat\"" /sc onstart /delay 0000:10 /ru SYSTEM /f >nul 2>&1
+  if not errorlevel 1 (
+    echo         Auto-boot task registered (SYSTEM - starts at power-on^). [OK]
+  ) else (
+    echo         [WARN] Could not register SYSTEM boot task. Falling back to login task.
+  )
+)
+
+:: Task 2: User-login fallback (runs when the user logs in — backup layer)
+if exist "%ROOT%\achme-startup.bat" (
+  schtasks /create /tn "ACHME_CRM_Login_Startup" /tr "\"%ROOT%\achme-startup.bat\"" /sc onlogon /rl HIGHEST /f >nul 2>&1
+  if not errorlevel 1 (
+    echo         Login fallback task registered. [OK]
+  )
+)
+echo [%DATE% %TIME%] Scheduled tasks registered >> "%LOGFILE%"
+
+:: --- Hosts file update ---
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$hostsFile = \"$env:SystemRoot\System32\drivers\etc\hosts\";" ^
+  "$domains = @('achme.com', 'www.achme.com', 'IBM-SERVER', 'IBM-SERVER.achme.com');" ^
+  "$content = [System.IO.File]::ReadAllLines($hostsFile);" ^
+  "$filtered = $content | Where-Object { $line = $_.Trim(); $keep = $true; foreach($d in $domains) { if ($line -match ('(?i)\b' + [regex]::Escape($d) + '\b')) { $keep = $false; break } }; $keep };" ^
+  "$ip = '%LAN_IP%';" ^
+  "$newMappings = @(" ^
+  "    ''," ^
+  "    '# ACHME CRM Server Mapping (auto-generated by start-servers.bat)'," ^
+  "    ($ip + '    achme.com    www.achme.com')," ^
+  "    ($ip + '    IBM-SERVER   IBM-SERVER.achme.com')" ^
+  ");" ^
+  "[System.IO.File]::WriteAllLines($hostsFile, ($filtered + $newMappings));" >>"%LOGFILE%" 2>&1
+ipconfig /flushdns >nul 2>&1
+echo         Hosts file updated.
+
+echo         Step 9 complete. [OK]
 
 :: ====================================================================
-:: Wait a moment then verify everything is running
+:: STEP 10/10 — Health verification
 :: ====================================================================
-timeout /t 3 /nobreak >nul
+echo  [10/%S%] Verifying all services...
+echo [%DATE% %TIME%] Step 10: Health verification >> "%LOGFILE%"
+
+:: Give backend a moment to fully start
+timeout /t 6 /nobreak >nul
+
+echo.
+echo  ===========================================================================
+echo    VERIFYING ALL SERVICES...
+echo  ===========================================================================
+echo.
+
+set "ALL_OK=1"
+
+:: Test Nginx
+curl.exe -s --max-time 5 http://localhost:82/nginx-health >nul 2>&1
+if errorlevel 1 (
+  echo    [!!] Nginx  (port 82^)  - NOT RESPONDING
+  set "ALL_OK=0"
+) else (
+  echo    [OK] Nginx  (port 82^)  - RUNNING
+)
+
+:: Test Backend directly
+curl.exe -s --max-time 5 http://localhost:5000/api/health >nul 2>&1
+if errorlevel 1 (
+  echo    [!!] Backend (port 5000^) - NOT RESPONDING
+  set "ALL_OK=0"
+) else (
+  echo    [OK] Backend (port 5000^) - RUNNING
+)
+
+:: Test Backend via Nginx proxy
+curl.exe -s --max-time 5 http://localhost:82/api/health >nul 2>&1
+if errorlevel 1 (
+  echo    [!!] Nginx-to-Backend proxy - NOT WORKING
+  set "ALL_OK=0"
+) else (
+  echo    [OK] Nginx-to-Backend proxy - CONNECTED
+)
+
+:: Test LAN IP access
+curl.exe -s --max-time 5 http://%LAN_IP%:82/nginx-health >nul 2>&1
+if errorlevel 1 (
+  echo    [!!] LAN access (%LAN_IP%:82^) - NOT RESPONDING
+  set "ALL_OK=0"
+) else (
+  echo    [OK] LAN access (%LAN_IP%:82^) - WORKING
+)
+
+echo.
+
+if "%ALL_OK%"=="1" (
+  echo  ===========================================================================
+  echo    ALL SERVICES RUNNING PERFECTLY!
+  echo  ===========================================================================
+) else (
+  echo  ===========================================================================
+  echo    SOME SERVICES MAY NEED ATTENTION - Check warnings above.
+  echo    Try running this script again, or check: %LOGFILE%
+  echo  ===========================================================================
+)
+
+:: Open the access guide
+if exist "%ROOT%\show.bat" start "" "%ROOT%\show.bat"
+
+echo.
+echo  ===========================================================================
+echo    SETUP COMPLETE! Everything runs in the BACKGROUND.
+echo    Closing this window will NOT stop the CRM!
+echo  ===========================================================================
+echo.
+echo    ACCESS URLS:
+echo      http://localhost:82         - From this machine
+echo      http://%LAN_IP%:82      - From any device on the LAN
+echo      http://%PC_HOSTNAME%:82    - By hostname
+echo      http://achme.com           - After employee-hosts-setup.bat
+echo.
+echo    ADMIN LOGIN: Kk@achmecommunication.com / kk@admin@123
+echo.
+echo    AUTO-BOOT: Services auto-start within 30s of power-on!
+echo      - SYSTEM boot task: starts at power-on (before login)
+echo      - Login fallback:   starts on user login (backup layer)
+echo.
+echo    Press any key to enter the Live Status Monitor...
+echo  ===========================================================================
+pause >nul
 
 :: ====================================================================
-:: SHOW STATUS — stays open forever until user presses Ctrl+C
+:: LIVE STATUS MONITOR - stays open, refreshes every 60s
 :: ====================================================================
-:show_status
+:monitor_loop
 cls
 color 0A
 echo.
-echo  =====================================================================
-echo    ACHME CRM IS RUNNING
-echo  =====================================================================
+echo  ===========================================================================
+echo    ACHME CRM  ^|  LIVE STATUS MONITOR
+echo    NOTE: Closing this window will NOT stop the CRM!
+echo    Nginx and PM2 run independently in the background.
+echo  ===========================================================================
 echo.
-echo    Server IP  : %LAN_IP%
-echo    Frontend   : Port %FRONTEND_PORT%
-echo    Backend    : Port %BACKEND_PORT%
+echo    Server hostname  : %PC_HOSTNAME%
+echo    Server LAN IP    : %LAN_IP%
 echo.
-echo  ---- ACCESS URLS -----------------------------------------------
+echo  ---------------------------------------------------------------------------
+echo    ACCESS FROM THIS MACHINE:
+echo      http://localhost:82
+echo      http://127.0.0.1:82
+echo      http://%PC_HOSTNAME%:82
+echo      http://%LAN_IP%:82
 echo.
-echo    From THIS server machine:
-echo      http://localhost:%FRONTEND_PORT%
-echo      http://127.0.0.1:%FRONTEND_PORT%
+echo    ACCESS FROM EMPLOYEE PCs (LAN):
+echo      http://%LAN_IP%:82        ^<-- Direct IP (always works!)
+echo      http://%PC_HOSTNAME%:82   ^<-- Hostname
+echo      http://achme.com          ^<-- After employee-hosts-setup.bat
 echo.
-echo    From any employee PC on LAN:
-echo      http://%LAN_IP%:%FRONTEND_PORT%
-echo      http://achme.com         (after employee-hosts-setup.bat)
-echo      http://www.achme.com     (after employee-hosts-setup.bat)
-echo      http://IBM-SERVER:%FRONTEND_PORT%    (after employee-hosts-setup.bat)
-echo.
-echo    Backend API health check:
-echo      http://localhost:%BACKEND_PORT%/api/health
-echo      http://%LAN_IP%:%BACKEND_PORT%/api/health
-echo.
-echo  ---- QUICK VERIFY ----------------------------------------------
+echo    ADMIN LOGIN: Kk@achmecommunication.com / kk@admin@123
+echo  ---------------------------------------------------------------------------
+echo    SERVICE STATUS:
 echo.
 
-:: Live check Nginx
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r = Invoke-WebRequest -Uri 'http://localhost:%FRONTEND_PORT%/nginx-health' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop; Write-Host '    Nginx (Port %FRONTEND_PORT%):  RUNNING  OK' -ForegroundColor Green } catch { Write-Host '    Nginx (Port %FRONTEND_PORT%):  [!] NOT RESPONDING' -ForegroundColor Red }"
-
-:: Live check Backend
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r = Invoke-WebRequest -Uri 'http://localhost:%BACKEND_PORT%/api/health' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop; Write-Host '    Backend (Port %BACKEND_PORT%): RUNNING  OK' -ForegroundColor Green } catch { Write-Host '    Backend (Port %BACKEND_PORT%): [!] NOT RESPONDING' -ForegroundColor Red }"
-
-echo.
-echo  ---- LOGIN -----------------------------------------------------
-echo.
-echo    Admin login:  Kk@achmecommunication.com
-echo.
-if "%IP_IS_DYNAMIC%"=="1" (
-  echo    [INFO] IP was DYNAMIC and has been frozen to STATIC: %LAN_IP%
+:: Check MySQL
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -LocalPort 3306 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >nul 2>&1
+if errorlevel 1 (
+  echo    [!!] MySQL    port 3306 - NOT RUNNING
+) else (
+  echo    [OK] MySQL    port 3306 - RUNNING
 )
-echo  ================================================================
-echo.
-echo    This window must stay open to keep CRM running.
-echo    Press Ctrl+C to stop the CRM, or just close this window.
-echo.
-echo  ================================================================
 
-:: Keep window open - refresh status every 60 seconds
-:keep_alive
+:: Check Nginx
+curl.exe -s --max-time 4 http://localhost:82/nginx-health >nul 2>&1
+if errorlevel 1 (
+  echo    [!!] Nginx    port 82   - NOT RUNNING  ^(run: start-servers.bat^)
+) else (
+  echo    [OK] Nginx    port 82   - RUNNING
+)
+
+:: Check Backend via nginx proxy
+curl.exe -s --max-time 4 http://localhost:82/api/health >nul 2>&1
+if errorlevel 1 (
+  echo    [!!] Backend  port 5000 - NOT RUNNING  ^(run: start-servers.bat^)
+) else (
+  echo    [OK] Backend  port 5000 - RUNNING  ^(via nginx proxy^)
+)
+
+echo.
+echo  ===========================================================================
+echo    Services run in BACKGROUND - this window is only a status monitor.
+echo    You can close this window safely. Services keep running!
+echo.
+echo    AUTO-BOOT: Active (SYSTEM + Login tasks registered)
+echo.
+echo    Refreshing in 60 seconds... Press Ctrl+C to close this monitor.
+echo  ===========================================================================
 timeout /t 60 /nobreak >nul
-goto :show_status
+goto :monitor_loop
 
+:: ====================================================================
+:: SUBROUTINE: Write nginx.conf
+:: ====================================================================
+:write_nginx_conf
+(
+echo worker_processes 1;
+echo.
+echo events {
+echo     worker_connections 1024;
+echo }
+echo.
+echo http {
+echo     include       mime.types;
+echo     default_type  application/octet-stream;
+echo     sendfile        on;
+echo     keepalive_timeout 65;
+echo     access_log  logs/achme_access.log;
+echo     error_log   logs/achme_error.log warn;
+echo.
+echo     upstream achme_backend {
+echo         server 127.0.0.1:%BACKEND_PORT%;
+echo         keepalive 32;
+echo     }
+echo.
+echo     server {
+echo         listen 0.0.0.0:82 default_server;
+echo         server_name _;
+echo.
+echo         root C:/nginx/html/achme;
+echo         index index.html;
+echo.
+echo         location / {
+echo             try_files $uri $uri/ /index.html;
+echo         }
+echo.
+echo         location = /index.html {
+echo             add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0";
+echo             expires -1;
+echo         }
+echo.
+echo         location /api/ {
+echo             proxy_pass http://achme_backend/api/;
+echo             proxy_http_version 1.1;
+echo             proxy_set_header Host              $host;
+echo             proxy_set_header X-Real-IP         $remote_addr;
+echo             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+echo             proxy_set_header X-Forwarded-Proto $scheme;
+echo             proxy_connect_timeout  120s;
+echo             proxy_send_timeout     120s;
+echo             proxy_read_timeout     120s;
+echo             client_max_body_size   50M;
+echo         }
+echo.
+echo         location /socket.io/ {
+echo             proxy_pass http://achme_backend/socket.io/;
+echo             proxy_http_version 1.1;
+echo             proxy_set_header Upgrade    $http_upgrade;
+echo             proxy_set_header Connection "upgrade";
+echo             proxy_set_header Host              $host;
+echo             proxy_set_header X-Real-IP         $remote_addr;
+echo             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+echo             proxy_connect_timeout  60s;
+echo             proxy_send_timeout     60s;
+echo             proxy_read_timeout  3600s;
+echo         }
+echo.
+echo         location /nginx-health {
+echo             return 200 "Nginx OK\n";
+echo             add_header Content-Type text/plain;
+echo         }
+echo.
+echo         location ~* \.(js^|css^|png^|jpg^|jpeg^|gif^|ico^|svg^|woff^|woff2^|ttf^|eot^)$ {
+echo             expires 1y;
+echo             add_header Cache-Control "public, immutable";
+echo             access_log off;
+echo         }
+echo.
+echo         location ~ /\. { deny all; }
+echo     }
+echo }
+) >"%NGINX_DIR%\conf\nginx.conf"
+exit /b 0
+
+:: ====================================================================
+:: FAIL HANDLER
+:: ====================================================================
 :fail
-cls
-color 0C
 echo.
-echo  =====================================================================
-echo    ACHME CRM STARTUP FAILED
-echo  =====================================================================
-echo.
-echo    Check the log file for details:
-echo    %LOG_DIR%\start-servers.log
-echo.
-echo    Common fixes:
-echo      1. Make sure MySQL is running
-echo      2. Make sure Node.js is installed
-echo      3. Run this file as Administrator
-echo.
+echo  ===========================================================================
+echo    STARTUP FAILED - Check log: %LOGFILE%
+echo  ===========================================================================
+echo [%DATE% %TIME%] SETUP FAILED >> "%LOGFILE%"
 pause
 exit /b 1

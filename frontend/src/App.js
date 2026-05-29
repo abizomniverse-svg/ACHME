@@ -41,12 +41,12 @@ import PwaManager from "./components/PwaManager";
 import NetworkSetupBanner from "./components/NetworkSetupBanner";
 
 const getApiBackend = () => {
-  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
-  if (window.location.port && window.location.port !== "3000") {
+  if (typeof window !== "undefined" && window.location.port !== "3000") {
     return window.location.origin;
   }
-  const protocol = window.location.protocol;
-  const hostname = window.location.hostname;
+  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
+  const protocol = window.location.protocol || "http:";
+  const hostname = window.location.hostname || "localhost";
   return `${protocol}//${hostname}:5000`;
 };
 

@@ -21,16 +21,18 @@ const server = http.createServer(app);
 module.exports = app;
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
-// In production set ALLOWED_ORIGIN in your .env, e.g. https://yourdomain.com
-// For self-hosted: set ALLOWED_ORIGIN=* or leave blank to allow all origins
+// Dynamically echo back any origin in self-hosted mode to avoid CORS errors with dynamic IPs/hostnames
 const allowedOrigin = process.env.ALLOWED_ORIGIN || "*";
-const corsOrigins = allowedOrigin === "*" ? "*" : allowedOrigin.split(",").map((o) => o.trim()).filter(Boolean);
+const dynamicOrigin = (origin, callback) => {
+  callback(null, true);
+};
 app.use(cors({
-  origin: corsOrigins,
+  origin: dynamicOrigin,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: corsOrigins !== "*",
+  credentials: true,
 }));
+const corsOrigins = dynamicOrigin;
 
 app.use(express.json());
 
