@@ -539,7 +539,7 @@ const handleSendMail = () => {
         </td>
         <td className="p-4 border">
            <div className="flex justify-center gap-3">
-               {(currentUser?.role === "admin") && (
+               {(currentUser?.role === "admin" && E.user_role !== "admin") && (
                  <>
                    <button type="button" onClick={() => deleteTeamMember(E.id)} className="text-red-500 hover:text-red-700 transition" title="Delete">
                      <Trash2 size={18} />
@@ -554,6 +554,9 @@ const handleSendMail = () => {
                      <Zap size={18} />
                    </button>
                  </>
+               )}
+               {(currentUser?.role === "admin" && E.user_role === "admin") && (
+                 <span className="text-xs text-purple-600 font-semibold px-2 py-1 bg-purple-50 rounded-full">Admin</span>
                )}
                {currentUser?.role === "subadmin" && (
                  <button type="button" onClick={() => openAssignModal(E)} className="text-blue-600 hover:text-blue-800 transition" title="Assign Task/Target">
@@ -779,7 +782,6 @@ const handleSendMail = () => {
                     className="w-full border rounded-lg px-3 py-2 text-sm bg-white outline-none">
                     <option value="employee">Employee (Create/View Only)</option>
                     <option value="subadmin">Sub-Admin (Assign Tasks/Targets, Edit)</option>
-                    <option value="admin">Admin (Full Access)</option>
                   </select>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-500">

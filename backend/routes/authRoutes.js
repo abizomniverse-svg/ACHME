@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const db = require("../config/database");
+const { encrypt, decrypt } = require("../backendutil/cryptoHelper");
 const { generateOtp } = require("../backendutil/otp");
 const sendEmailOtp = require("../backendutil/sendSms");
 const { verifyToken, isAdmin } = require("../middleware/authMiddleware");
@@ -226,12 +227,16 @@ router.post("/create-user", isAdmin, (req, res) => {
 });
 
 /* ================= ADMIN: UPDATE USER ================= */
-router.put("/update-user/:id", isAdmin, (req, res) => {
+router.put("/update-user/:id", verifyToken, isAdmin, (req, res) => {
   const { first_name, email, emp_id, job_title, emp_role, mobile_number, emp_address, role } = req.body;
 
-  db.query(`SELECT email FROM users WHERE id = ?`, [req.params.id], (err, rows) => {
+  db.query(`SELECT email, role FROM users WHERE id = ?`, [req.params.id], (err, rows) => {
     if (err || !rows.length) return res.status(404).json({ message: "User not found" });
     const oldEmail = rows[0].email;
+    // Protect: cannot edit an admin user's record
+    if (rows[0].role === "admin") {
+      return res.status(403).json({ message: "Cannot modify an admin account" });
+    }
 
     db.query(`UPDATE users SET first_name = ?, email = ?, role = ? WHERE id = ?`, [first_name, email?.toLowerCase() || oldEmail, role || "employee", req.params.id], (err2) => {
       if (err2) return res.status(500).json({ message: "Update failed" });
@@ -244,18 +249,22 @@ router.put("/update-user/:id", isAdmin, (req, res) => {
   });
 });
 
-/* ================= ADMIN: CHANGE USER ROLE (Sub-Admin) ================= */
+/* ================= ADMIN: CHANGE USER ROLE ================= */
 router.put("/change-role/:id", verifyToken, isAdmin, (req, res) => {
   const { role } = req.body;
-  if (!["admin", "subadmin", "employee"].includes(role)) {
-    return res.status(400).json({ message: "Invalid role. Must be admin, subadmin, or employee" });
+  if (!["subadmin", "employee"].includes(role)) {
+    return res.status(400).json({ message: "Invalid role. Can only set subadmin or employee" });
   }
-  if (req.user.role !== "admin" && role === "admin") {
-    return res.status(403).json({ message: "Only admins can assign the admin role" });
-  }
-  db.query(`UPDATE users SET role = ? WHERE id = ?`, [role, req.params.id], (err) => {
-    if (err) return res.status(500).json({ message: "Role update failed" });
-    res.json({ message: `Role updated to ${role}` });
+  // Check if target user is an admin — admins are protected
+  db.query(`SELECT role FROM users WHERE id = ?`, [req.params.id], (err, rows) => {
+    if (err || !rows.length) return res.status(404).json({ message: "User not found" });
+    if (rows[0].role === "admin") {
+      return res.status(403).json({ message: "Cannot change the role of an admin account" });
+    }
+    db.query(`UPDATE users SET role = ? WHERE id = ?`, [role, req.params.id], (err2) => {
+      if (err2) return res.status(500).json({ message: "Role update failed" });
+      res.json({ message: `Role updated to ${role}` });
+    });
   });
 });
 
@@ -264,16 +273,25 @@ router.put("/ban-user/:id", verifyToken, isAdmin, (req, res) => {
   const { status } = req.body;
   if (!["active", "banned", "pending"].includes(status)) return res.status(400).json({ message: "Invalid status" });
 
-  db.query(`UPDATE users SET status = ? WHERE id = ?`, [status, req.params.id], (err) => {
-    if (err) return res.status(500).json({ message: "Update failed" });
-    res.json({ message: "User status updated" });
+  // Protect admin accounts from being banned
+  db.query(`SELECT role FROM users WHERE id = ?`, [req.params.id], (err0, rows0) => {
+    if (err0 || !rows0.length) return res.status(404).json({ message: "User not found" });
+    if (rows0[0].role === "admin") return res.status(403).json({ message: "Cannot ban an admin account" });
+
+    db.query(`UPDATE users SET status = ? WHERE id = ?`, [status, req.params.id], (err) => {
+      if (err) return res.status(500).json({ message: "Update failed" });
+      res.json({ message: "User status updated" });
+    });
   });
 });
 
 /* ================= ADMIN: DELETE USER ================= */
 router.delete("/delete-user/:id", verifyToken, isAdmin, (req, res) => {
-  db.query(`SELECT email FROM users WHERE id = ?`, [req.params.id], (err, rows) => {
+  db.query(`SELECT email, role FROM users WHERE id = ?`, [req.params.id], (err, rows) => {
     if (err || !rows.length) return res.status(404).json({ message: "User not found" });
+    // Protect admin accounts from being deleted
+    if (rows[0].role === "admin") return res.status(403).json({ message: "Cannot delete an admin account" });
+
 
     db.query(`DELETE FROM users WHERE id = ?`, [req.params.id], (err2) => {
       if (err2) return res.status(500).json({ message: "Delete failed" });
@@ -677,7 +695,7 @@ router.post("/test-smtp-connection", verifyToken, async (req, res) => {
         });
       });
       if (savedConfig && savedConfig.length > 0) {
-        finalPass = savedConfig[0].email_pass;
+        finalPass = decrypt(savedConfig[0].email_pass);
       }
     } catch (e) {
       return res.status(500).json({ message: "Failed to fetch saved password" });
@@ -730,7 +748,7 @@ router.post("/send-test-email", verifyToken, async (req, res) => {
         });
       });
       if (savedConfig && savedConfig.length > 0) {
-        finalPass = savedConfig[0].email_pass;
+        finalPass = decrypt(savedConfig[0].email_pass);
       }
     } catch (e) {
       return res.status(500).json({ message: "Failed to fetch saved password" });
@@ -830,17 +848,24 @@ router.post("/save-email-config", verifyToken, async (req, res) => {
     // Check if an existing configuration exists to preserve password if placeholder is sent
     db.query("SELECT email_pass FROM user_email_configs WHERE user_id = ?", [userId], async (errExist, rowsExist) => {
       let finalPass = email_pass;
+      let encryptedPass = "";
+      let decryptedPass = "";
+
       if ((!finalPass || finalPass === "••••••••••••••••") && rowsExist && rowsExist.length > 0) {
-        finalPass = rowsExist[0].email_pass;
+        encryptedPass = rowsExist[0].email_pass;
+        decryptedPass = decrypt(encryptedPass);
+      } else if (finalPass && finalPass !== "••••••••••••••••") {
+        decryptedPass = finalPass;
+        encryptedPass = encrypt(finalPass);
       }
 
-      if (!finalPass) {
+      if (!decryptedPass) {
         return res.status(400).json({ message: "SMTP Password or App Password is required" });
       }
 
       // If configuration is being enabled/saved for the first time, or password changed, validate it first!
       if (finalEnabled === 1) {
-        const check = await testSMTPConnection(host, port, secure, finalEmailUser, finalPass);
+        const check = await testSMTPConnection(host, port, secure, finalEmailUser, decryptedPass);
         if (!check.success) {
           return res.status(400).json({ 
             message: `Verification failed: ${check.message}`, 
@@ -855,8 +880,8 @@ router.post("/save-email-config", verifyToken, async (req, res) => {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE email_user = ?, email_pass = ?, smtp_host = ?, smtp_port = ?, smtp_secure = ?, from_email_address = ?, sender_name = ?, provider = ?, is_enabled = ?`,
         [
-          userId, finalEmailUser, finalPass, host, port, secure, finalFromEmail, finalSenderName, finalProvider, finalEnabled,
-          finalEmailUser, finalPass, host, port, secure, finalFromEmail, finalSenderName, finalProvider, finalEnabled
+          userId, finalEmailUser, encryptedPass, host, port, secure, finalFromEmail, finalSenderName, finalProvider, finalEnabled,
+          finalEmailUser, encryptedPass, host, port, secure, finalFromEmail, finalSenderName, finalProvider, finalEnabled
         ],
         (err2) => {
           if (err2) {
@@ -914,5 +939,16 @@ function insertRequest(userId, field, new_value, userName, res) {
     }
   );
 }
+
+router.get("/admin-email", verifyToken, (req, res) => {
+  // Return the logged-in user's own email so that each tenant/company
+  // gets their own admin email as CC — not a hardcoded first-row admin.
+  db.query("SELECT email FROM users WHERE id = ?", [req.user.id], (err, rows) => {
+    if (err || !rows.length) {
+      return res.json({ email: "" });
+    }
+    res.json({ email: rows[0].email });
+  });
+});
 
 module.exports = router;

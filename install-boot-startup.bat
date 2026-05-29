@@ -4,73 +4,221 @@ title ACHME CRM - Install Automatic Windows Boot & Logon Startup
 
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
+set "BACKEND_PORT=5000"
+set "NGINX_DIR=C:\nginx"
+set "LOG_DIR=%ROOT%\logs"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
-echo.
-echo ====================================================================
-echo  ACHME CRM - AUTOMATIC WINDOWS BOOT ^& LOGON STARTUP INSTALLER
-echo ====================================================================
-echo.
+:: Support /silent flag for background invocation from start-servers.bat
+set "SILENT_MODE=0"
+if /I "%~1"=="/silent" set "SILENT_MODE=1"
 
-:: 1. Verify Administrator Privileges
+:: ----------------------------------------------------------------
+:: Admin check
+:: ----------------------------------------------------------------
 net session >nul 2>&1
-if errorlevel 1 (
-  echo.
-  echo ❌ ERROR: Administrator privileges are required!
-  echo.
-  echo Please right-click this file "install-boot-startup.bat"
-  echo and select "Run as Administrator" to authorize Windows Scheduled Tasks.
-  echo.
-  pause
-  exit /b 1
-)
-
-:: 2. Verify files exist
-if not exist "%ROOT%\achme-startup.bat" (
-  echo ❌ ERROR: achme-startup.bat was not found in:
-  echo %ROOT%\achme-startup.bat
-  pause
-  exit /b 1
-)
-if not exist "%ROOT%\achme-dashboard.bat" (
-  echo ❌ ERROR: achme-dashboard.bat was not found in:
-  echo %ROOT%\achme-dashboard.bat
-  pause
-  exit /b 1
-)
-
-:: 3. Register the Scheduled Task to trigger at boot time (runs headless, before login!)
-echo ⚙️ [1/2] Creating Windows Boot Scheduled Task (Headless, Background)...
-schtasks /create /tn "ACHME_CRM_Boot_Startup" /tr "\"%ROOT%\achme-startup.bat\"" /sc onstart /ru SYSTEM /rl HIGHEST /f >nul 2>&1
-if errorlevel 1 (
-  echo ❌ Failed to register System Boot Scheduled Task.
-) else (
-  echo  👉 [SUCCESS] Headless Boot Task "ACHME_CRM_Boot_Startup" registered successfully!
-  echo     This scheduled task runs headless under the 'SYSTEM' account
-  echo     immediately upon OS boot (no user session or password required).
+if not errorlevel 1 goto :is_admin
+if "%SILENT_MODE%"=="1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -ArgumentList '/silent' -Verb RunAs -WindowStyle Hidden"
+  exit /b 0
 )
 echo.
+echo ERROR: Administrator privileges are required!
+echo Please right-click "install-boot-startup.bat" and select "Run as Administrator".
+echo.
+pause
+exit /b 1
 
-:: 4. Register the Logon Task to open the visible status dashboard terminal elevated (bypasses UAC prompts!)
-echo ⚙️ [2/2] Creating Windows Logon Scheduled Task (Interactive, Visible Dashboard)...
-schtasks /create /tn "ACHME_CRM_Logon_Dashboard" /tr "\"%ROOT%\achme-dashboard.bat\"" /sc onlogon /rl HIGHEST /f >nul 2>&1
-if errorlevel 1 (
-  echo ❌ Failed to register Logon Dashboard Scheduled Task.
-) else (
-  echo  👉 [SUCCESS] Interactive Logon Task "ACHME_CRM_Logon_Dashboard" registered successfully!
-  echo     This scheduled task triggers at logon of any user, launching an
-  echo     elevated, visible terminal window displaying the server IP and ports
-  echo     completely autonomously with zero UAC prompts!
+:is_admin
+
+if "%SILENT_MODE%"=="0" (
+  echo.
+  echo ====================================================================
+  echo  ACHME CRM - AUTOMATIC WINDOWS BOOT & LOGON STARTUP INSTALLER
+  echo ====================================================================
+  echo.
 )
 
-echo.
+:: ----------------------------------------------------------------
+:: STEP 1 — Detect LAN IP
+:: ----------------------------------------------------------------
+if "%SILENT_MODE%"=="0" echo [Step 1/5] Detecting LAN IP...
+set "LAN_IP="
+for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress"`) do set "LAN_IP=%%i"
+if "%LAN_IP%"=="" set "LAN_IP=127.0.0.1"
+if "%SILENT_MODE%"=="0" echo   Detected LAN IP: %LAN_IP%
+if "%SILENT_MODE%"=="0" echo.
+
+:: ----------------------------------------------------------------
+:: STEP 2 — Write nginx.conf (listen on 0.0.0.0:82 = ALL interfaces)
+:: ----------------------------------------------------------------
+if "%SILENT_MODE%"=="0" echo [Step 2/5] Writing nginx.conf...
+if exist "%NGINX_DIR%\nginx.exe" (
+  if not exist "%NGINX_DIR%\html\achme" mkdir "%NGINX_DIR%\html\achme"
+  (
+  echo worker_processes 1;
+  echo.
+  echo events {
+  echo     worker_connections 1024;
+  echo }
+  echo.
+  echo http {
+  echo     include       mime.types;
+  echo     default_type  application/octet-stream;
+  echo     sendfile        on;
+  echo     keepalive_timeout 65;
+  echo     access_log  logs/achme_access.log;
+  echo     error_log   logs/achme_error.log;
+  echo.
+  echo     upstream achme_backend {
+  echo         server 127.0.0.1:%BACKEND_PORT%;
+  echo         keepalive 32;
+  echo     }
+  echo.
+  echo     server {
+  echo         listen 0.0.0.0:82;
+  echo         server_name achme.com www.achme.com IBM-SERVER IBM-SERVER.achme.com %LAN_IP% 127.0.0.1 localhost _;
+  echo.
+  echo         root %NGINX_DIR%/html/achme;
+  echo         index index.html;
+  echo.
+  echo         location / {
+  echo             try_files $uri $uri/ /index.html;
+  echo         }
+  echo.
+  echo         location = /index.html {
+  echo             add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+  echo             expires -1;
+  echo         }
+  echo.
+  echo         location /api/ {
+  echo             proxy_pass http://achme_backend/api/;
+  echo             proxy_http_version 1.1;
+  echo             proxy_set_header Host              $host;
+  echo             proxy_set_header X-Real-IP         $remote_addr;
+  echo             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+  echo             proxy_set_header X-Forwarded-Proto $scheme;
+  echo             proxy_connect_timeout  120s;
+  echo             proxy_send_timeout     120s;
+  echo             proxy_read_timeout     120s;
+  echo             client_max_body_size   50M;
+  echo         }
+  echo.
+  echo         location /socket.io/ {
+  echo             proxy_pass http://achme_backend/socket.io/;
+  echo             proxy_http_version 1.1;
+  echo             proxy_set_header Upgrade    $http_upgrade;
+  echo             proxy_set_header Connection "upgrade";
+  echo             proxy_set_header Host              $host;
+  echo             proxy_set_header X-Real-IP         $remote_addr;
+  echo             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+  echo             proxy_connect_timeout  60s;
+  echo             proxy_send_timeout     60s;
+  echo             proxy_read_timeout     3600s;
+  echo         }
+  echo.
+  echo         location /nginx-health {
+  echo             return 200 "Nginx OK - ACHME CRM\n";
+  echo             add_header Content-Type text/plain;
+  echo         }
+  echo.
+  echo         location ~* \.(js^|css^|png^|jpg^|jpeg^|gif^|ico^|svg^|woff^|woff2^|ttf^|eot^)$ {
+  echo             expires 1y;
+  echo             add_header Cache-Control "public, immutable";
+  echo             access_log off;
+  echo         }
+  echo.
+  echo         location ~ /\. {
+  echo             deny all;
+  echo         }
+  echo     }
+  echo }
+  ) > "%NGINX_DIR%\conf\nginx.conf"
+  if "%SILENT_MODE%"=="0" echo   [OK] nginx.conf written (listens on ALL interfaces - port 82)
+) else (
+  if "%SILENT_MODE%"=="0" echo   [WARN] Nginx not found at %NGINX_DIR%
+)
+if "%SILENT_MODE%"=="0" echo.
+
+:: ----------------------------------------------------------------
+:: STEP 3 — Update SERVER hosts file (use LAN IP for all domains)
+:: ----------------------------------------------------------------
+if "%SILENT_MODE%"=="0" echo [Step 3/5] Updating SERVER hosts file...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$hostsFile = ""$env:SystemRoot\System32\drivers\etc\hosts"";" ^
+  "$domains = @('achme.com', 'www.achme.com', 'IBM-SERVER', 'IBM-SERVER.achme.com');" ^
+  "$content = [System.IO.File]::ReadAllLines($hostsFile);" ^
+  "$filtered = $content | Where-Object { $line = $_.Trim(); $keep = $true; foreach ($d in $domains) { if ($line -match (""(?i)\b"" + [regex]::Escape($d) + ""\b"")) { $keep = $false; break } }; $keep };" ^
+  "$ip = '%LAN_IP%';" ^
+  "$newMappings = @(" ^
+  "    ''," ^
+  "    '# ACHME CRM auto-mapping (install-boot-startup.bat)'," ^
+  "    ($ip + '    achme.com    www.achme.com')," ^
+  "    ($ip + '    IBM-SERVER   IBM-SERVER.achme.com')" ^
+  ");" ^
+  "$result = $filtered + $newMappings;" ^
+  "[System.IO.File]::WriteAllLines($hostsFile, $result);" ^
+  "Write-Host ('  [OK] Server hosts: achme.com + IBM-SERVER -> ' + $ip) -ForegroundColor Green" ^
+  >> "%LOG_DIR%\install-boot-startup.log" 2>&1
+ipconfig /flushdns >nul
+if "%SILENT_MODE%"=="0" echo   [OK] Server hosts file updated
+if "%SILENT_MODE%"=="0" echo.
+
+:: ----------------------------------------------------------------
+:: STEP 4 — Register Boot Scheduled Task (SYSTEM account - headless)
+:: ----------------------------------------------------------------
+if "%SILENT_MODE%"=="0" echo [Step 4/5] Registering Boot Task (headless, SYSTEM account)...
+if exist "%ROOT%\achme-startup.bat" (
+  schtasks /create /tn "ACHME_CRM_Boot_Startup" /tr "\"%ROOT%\achme-startup.bat\"" /sc onstart /ru SYSTEM /rl HIGHEST /f >nul 2>&1
+  if "%SILENT_MODE%"=="0" (
+    if errorlevel 1 (
+      echo   [WARN] Failed to register Boot Task.
+    ) else (
+      echo   [OK] Boot Task registered - starts PM2 + Nginx on every OS boot.
+    )
+  )
+) else (
+  if "%SILENT_MODE%"=="0" echo   [WARN] achme-startup.bat not found - skipping boot task.
+)
+
+:: ----------------------------------------------------------------
+:: STEP 5 — Reload Nginx with new config
+:: ----------------------------------------------------------------
+if "%SILENT_MODE%"=="0" echo [Step 5/5] Reloading Nginx...
+if exist "%NGINX_DIR%\nginx.exe" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "if (Get-NetTCPConnection -State Listen -LocalPort 82 -ErrorAction SilentlyContinue) {" ^
+    "  Start-Process '%NGINX_DIR%\nginx.exe' -ArgumentList '-s','reload' -WorkingDirectory '%NGINX_DIR%' -WindowStyle Hidden;" ^
+    "  Start-Sleep 2" ^
+    "} else {" ^
+    "  Start-Process '%NGINX_DIR%\nginx.exe' -WorkingDirectory '%NGINX_DIR%' -WindowStyle Hidden;" ^
+    "  Start-Sleep 3" ^
+    "}" >nul 2>&1
+  if "%SILENT_MODE%"=="0" echo   [OK] Nginx reloaded.
+)
+if "%SILENT_MODE%"=="0" echo.
+
+if "%SILENT_MODE%"=="1" exit /b 0
+
+:: ----------------------------------------------------------------
+:: Interactive mode — show summary
+:: ----------------------------------------------------------------
 echo ====================================================================
 echo  INSTALLATION COMPLETED SUCCESSFULLY!
 echo ====================================================================
 echo.
-echo  Your CRM application is now fully automated and non-breakable:
-echo  1. Boot: Node servers ^& Nginx boot automatically in the background (within 30s).
-echo  2. Logon: A gorgeous, visible command dashboard launches automatically on your
-echo     desktop, showing the active running LAN IP address, port status, and PM2 list.
+echo  The CRM is now fully automated on this server:
+echo.
+echo  [BOOT]  PM2 (Node.js backend) + Nginx start automatically on OS boot.
+echo.
+echo  Access URLs (all working after setup):
+echo    http://localhost:82             - From this server machine
+echo    http://%LAN_IP%:82          - From any LAN device (direct IP)
+echo    http://achme.com               - After employee-hosts-setup.bat
+echo    http://www.achme.com           - After employee-hosts-setup.bat
+echo    http://IBM-SERVER:82           - After employee-hosts-setup.bat
+echo.
+echo  Share employee-hosts-setup.bat with each employee PC.
 echo.
 pause
 exit /b 0

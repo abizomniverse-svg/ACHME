@@ -1,142 +1,69 @@
 @echo off
 setlocal enabledelayedexpansion
-title ACHME CRM - Development Servers
+title ACHME CRM - Starting...
 
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
 set "BACKEND_PORT=5000"
 set "FRONTEND_PORT=82"
+set "NGINX_DIR=C:\nginx"
+set "LOG_DIR=%ROOT%\logs"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
-echo.
-echo ====================================================================
-echo  ACHME CRM - DEVELOPMENT STARTER
-echo ====================================================================
-echo.
-
-call :detect_ip
-if errorlevel 1 goto fail
-call :ensure_node
-if errorlevel 1 goto fail
-call :ensure_mysql
-if errorlevel 1 goto fail
-call :write_backend_env
-if errorlevel 1 goto fail
-call :write_frontend_env
-if errorlevel 1 goto fail
-call :install_backend
-if errorlevel 1 goto fail
-call :install_frontend
-if errorlevel 1 goto fail
-call :open_firewall_dev
-if errorlevel 1 goto fail
-call :stop_port %BACKEND_PORT%
-if errorlevel 1 goto fail
-call :stop_port %FRONTEND_PORT%
-if errorlevel 1 goto fail
-
-echo.
-echo Starting backend on 0.0.0.0:%BACKEND_PORT%...
-start "ACHME Backend :%BACKEND_PORT%" cmd /k "cd /d ""%ROOT%\backend"" && npm run dev"
-
-echo Starting frontend on 0.0.0.0:%FRONTEND_PORT%...
-start "ACHME Frontend :%FRONTEND_PORT%" cmd /k "cd /d ""%ROOT%\frontend"" && npx cross-env HOST=0.0.0.0 PORT=%FRONTEND_PORT% react-scripts start"
-
-echo.
-echo ====================================================================
-echo  ACHME CRM DEVELOPMENT SERVERS ARE STARTING
-echo ====================================================================
-echo.
-echo  Open on this PC:       http://localhost:%FRONTEND_PORT%
-echo  Open from LAN devices: http://%LAN_IP%:%FRONTEND_PORT%
-echo.
-echo  Backend health:        http://localhost:%BACKEND_PORT%/api/health
-echo  Backend LAN health:    http://%LAN_IP%:%BACKEND_PORT%/api/health
-echo.
-echo  Login: Kk@achmecommunication.com / kk@admin@123
-echo.
-echo  --------------------------------------------------------------------
-echo  * STABLE LOCAL ACCESS TIP *
-echo    If employees connect to your Wi-Fi, dynamic IPs change.
-echo    To freeze this local IP, run: `manage-local-ip.bat` as Administrator.
-echo  --------------------------------------------------------------------
-echo.
-echo  Keep the two opened command windows running.
-echo ====================================================================
-echo.
-pause
-exit /b 0
-
-:detect_ip
-echo [1/8] Detecting LAN IP...
-set "LAN_IP="
-for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$ip = (Find-NetRoute -RemoteIPAddress '8.8.8.8' -ErrorAction SilentlyContinue | Select-Object -First 1).LocalIPAddress; if (-not $ip) { $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress }; $ip"`) do set "LAN_IP=%%i"
-if "%LAN_IP%"=="" set "LAN_IP=127.0.0.1"
-echo   LAN IP: %LAN_IP%
-
-:: Query and display network IP static vs dynamic status
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$adapter = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1;" ^
-  "if ($adapter.Dhcp -eq 'Disabled') {" ^
-  "  Write-Host '  [STATUS] IP Address is: STATIC (IP Frozen - Safe for Employees)' -ForegroundColor Green" ^
-  "} else {" ^
-  "  Write-Host '  [STATUS] IP Address is: DYNAMIC (DHCP - Might change! Run manage-local-ip.bat to freeze it)' -ForegroundColor Yellow" ^
-  "}"
-exit /b 0
-
-:ensure_node
-echo [2/8] Checking Node.js and npm...
-where node >nul 2>&1
+:: ====================================================================
+:: STEP 1 — Admin check (everything needs admin to work)
+:: ====================================================================
+net session >nul 2>&1
 if errorlevel 1 (
-  echo   Node.js was not found.
-  where winget >nul 2>&1
-  if errorlevel 1 (
-    echo   [FAIL] Install Node.js 20 LTS from https://nodejs.org and run this file again.
-    pause
-    exit /b 1
-  )
-  echo   Installing Node.js LTS using winget...
-  winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
-  if errorlevel 1 goto fail
-)
-node --version
-call npm --version
-exit /b 0
-
-:ensure_mysql
-echo [3/8] Checking MySQL on port 3306...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -LocalPort 3306 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
-if not errorlevel 1 (
-  echo   MySQL is listening on port 3306.
+  echo.
+  echo  [!] Requesting Administrator privileges...
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
   exit /b 0
 )
-echo   MySQL is not listening yet. Trying to start a local MySQL service...
-for %%S in (MySQL80 MySQL MySQL57 mysql) do (
-  net start %%S >nul 2>&1
-  if not errorlevel 1 goto mysql_started
-)
-where winget >nul 2>&1
-if errorlevel 1 (
-  echo   [FAIL] MySQL is required. Install MySQL Server 8, create user achme_user, then run again.
-  pause
-  exit /b 1
-)
-echo   MySQL service was not found. Installing MySQL Server with winget...
-winget install -e --id Oracle.MySQL --accept-package-agreements --accept-source-agreements
-echo   After MySQL setup finishes, make sure the MySQL service is running and run this file again.
-pause
-exit /b 1
-:mysql_started
-echo   MySQL service started.
-exit /b 0
 
-:write_backend_env
-echo [4/8] Writing backend development .env...
+cls
+color 0B
+echo.
+echo  =====================================================================
+echo    ACHME CRM - STARTING UP...
+echo  =====================================================================
+echo.
+
+:: ====================================================================
+:: STEP 2 — Detect LAN IP
+:: ====================================================================
+echo  [1/8] Detecting LAN IP...
+set "LAN_IP="
+for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress"`) do set "LAN_IP=%%i"
+if "%LAN_IP%"=="" set "LAN_IP=127.0.0.1"
+echo     Detected IP: %LAN_IP%
+
+:: ====================================================================
+:: STEP 3 — Freeze IP to static + update hosts + env (synchronously)
+:: ====================================================================
+echo  [2/8] Checking if IP is Static or Dynamic...
+set "IP_IS_DYNAMIC=0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$a = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1; if ($a -and $a.Dhcp -eq 'Enabled') { exit 1 } else { exit 0 }" >nul 2>&1
+if errorlevel 1 (
+  set "IP_IS_DYNAMIC=1"
+  echo     IP is DYNAMIC - freezing to Static now...
+  call "%ROOT%\manage-local-ip.bat" /silent
+  echo     IP frozen to Static: %LAN_IP%
+) else (
+  echo     IP is already STATIC: %LAN_IP%
+  :: Still update hosts file in case IP changed
+  call "%ROOT%\manage-local-ip.bat" /update-hosts-only
+)
+
+:: ====================================================================
+:: STEP 4 — Write backend .env
+:: ====================================================================
+echo  [3/8] Writing backend .env...
 (
-echo # ACHME CRM Backend - Development Configuration
-echo # Auto-generated by start-servers.bat
+echo # ACHME CRM Backend - Auto-generated by start-servers.bat
 echo PORT=%BACKEND_PORT%
-echo NODE_ENV=development
-echo ALLOWED_ORIGIN=http://localhost:%FRONTEND_PORT%,http://%LAN_IP%:%FRONTEND_PORT%
+echo NODE_ENV=production
+echo ALLOWED_ORIGIN=http://localhost:%FRONTEND_PORT%,http://127.0.0.1:%FRONTEND_PORT%,http://%LAN_IP%:%FRONTEND_PORT%,http://achme.com,http://achme.com:82,http://www.achme.com,http://www.achme.com:82,http://IBM-SERVER:82,http://IBM-SERVER.achme.com:82
 echo DEFAULT_TEST_PASSWORD=Test@12345
 echo DB_HOST=127.0.0.1
 echo DB_PORT=3306
@@ -149,77 +76,287 @@ echo EMAIL_USER=thanan757@gmail.com
 echo EMAIL_PASS=ghjv omqm hwji kerq
 echo JWT_SECRET=97418d0c15d57ade768586b8501e35d34e5a5277f2a0570b6d5b47ef93f5b33e88b80045c60efd77e6edcbb015dbe46cf6747ce1dd8f11361f3e426ddc677c9a
 ) > "%ROOT%\backend\.env"
-exit /b 0
 
-:write_frontend_env
-echo [5/8] Writing frontend development .env...
+:: Write frontend .env (uses LAN IP so all devices can reach API)
 (
 echo REACT_APP_API_URL=http://%LAN_IP%:%BACKEND_PORT%
 echo REACT_APP_API_PROXY=http://%LAN_IP%:%BACKEND_PORT%
 ) > "%ROOT%\frontend\.env"
-exit /b 0
+(
+echo REACT_APP_API_URL=http://%LAN_IP%:%BACKEND_PORT%
+echo REACT_APP_API_PROXY=http://%LAN_IP%:%BACKEND_PORT%
+) > "%ROOT%\frontend\.env.production"
+echo     .env files written.
 
-:install_backend
-echo [6/8] Installing/checking backend dependencies...
+:: ====================================================================
+:: STEP 5 — Ensure Node.js and MySQL
+:: ====================================================================
+echo  [4/8] Checking Node.js and MySQL...
+where node >nul 2>&1
+if errorlevel 1 (
+  echo     Node.js not found - installing via winget...
+  where winget >nul 2>&1
+  if not errorlevel 1 winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements >nul 2>&1
+)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -LocalPort 3306 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >nul 2>&1
+if errorlevel 1 (
+  echo     Starting MySQL...
+  for %%S in (MySQL80 MySQL MySQL57 mysql) do (
+    net start %%S >nul 2>&1
+    if not errorlevel 1 goto :mysql_started
+  )
+  echo     [WARN] MySQL may not be running. Check MySQL service.
+)
+:mysql_started
+echo     Node.js and MySQL OK.
+
+:: ====================================================================
+:: STEP 6 — Install npm deps + DB init
+:: ====================================================================
+echo  [5/8] Installing backend dependencies...
 cd /d "%ROOT%\backend"
-if exist package-lock.json (
-  call npm install
-) else (
-  call npm install
-)
-if errorlevel 1 goto fail
-echo   Installing/checking Puppeteer browser...
-call npx puppeteer browsers install chrome
-if errorlevel 1 echo   [WARN] Puppeteer browser install failed. PDFs may fail until Chrome is installed.
-echo   Ensuring ACHME database user exists...
-call node ensure_db_user.js
-if errorlevel 1 (
-  echo.
-  echo [FAIL] Database user setup failed.
-  pause
-  exit /b 1
-)
-echo   Checking database and creating tables if needed...
-call node db_init.js
-if errorlevel 1 (
-  echo.
-  echo [FAIL] Database login failed.
-  echo        Ensure MySQL has user: achme_user
-  echo        Password: AchmeSecure@2024
-  echo        Database: achme
-  pause
-  exit /b 1
-)
-exit /b 0
+call npm install >> "%LOG_DIR%\start-servers.log" 2>&1
+if errorlevel 1 goto :fail
+call npx puppeteer browsers install chrome >nul 2>&1
+call node ensure_db_user.js >> "%LOG_DIR%\start-servers.log" 2>&1
+if errorlevel 1 goto :fail
+call node db_init.js >> "%LOG_DIR%\start-servers.log" 2>&1
+if errorlevel 1 goto :fail
 
-:install_frontend
-echo [7/8] Installing/checking frontend dependencies...
+echo  [6/8] Installing frontend dependencies...
 cd /d "%ROOT%\frontend"
-call npm install
-if errorlevel 1 goto fail
-exit /b 0
+call npm install >> "%LOG_DIR%\start-servers.log" 2>&1
+if errorlevel 1 goto :fail
 
-:open_firewall_dev
-echo [8/8] Opening Windows Firewall ports when allowed...
-net session >nul 2>&1
-if errorlevel 1 (
-  echo   Not running as Administrator. If LAN devices cannot connect, allow TCP %FRONTEND_PORT% and %BACKEND_PORT% in Windows Firewall.
-  exit /b 0
-)
-netsh advfirewall firewall add rule name="ACHME CRM Frontend %FRONTEND_PORT%" dir=in action=allow protocol=TCP localport=%FRONTEND_PORT% >nul 2>&1
-netsh advfirewall firewall add rule name="ACHME CRM Backend %BACKEND_PORT%" dir=in action=allow protocol=TCP localport=%BACKEND_PORT% >nul 2>&1
-echo   Firewall rules are ready.
-exit /b 0
+:: ====================================================================
+:: STEP 7 — Build frontend (skip if already built with same IP)
+:: ====================================================================
+echo  [7/8] Building frontend...
 
-:stop_port
-set "PORT_TO_STOP=%~1"
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%PORT_TO_STOP% .*LISTENING"') do (
-  taskkill /f /pid %%P >nul 2>&1
+:: Check if build exists and IP matches last build
+set "NEED_BUILD=1"
+set "BUILD_IP_FILE=%ROOT%\.last-build-ip"
+if exist "%ROOT%\frontend\build\index.html" (
+  if exist "%BUILD_IP_FILE%" (
+    set "LAST_IP="
+    for /f "usebackq tokens=*" %%v in ("%BUILD_IP_FILE%") do set "LAST_IP=%%v"
+    if "!LAST_IP!"=="%LAN_IP%" (
+      set "NEED_BUILD=0"
+      echo     Build found for IP %LAN_IP% - skipping rebuild.
+    ) else (
+      echo     IP changed from !LAST_IP! to %LAN_IP% - rebuilding...
+    )
+  )
+) else (
+  echo     No build found - building for first time...
 )
-exit /b 0
+
+if "%NEED_BUILD%"=="1" (
+  cd /d "%ROOT%\frontend"
+  call npm run build >> "%LOG_DIR%\start-servers.log" 2>&1
+  if errorlevel 1 goto :fail
+  echo %LAN_IP%> "%BUILD_IP_FILE%"
+  echo     Frontend built successfully.
+)
+
+:: Copy build to Nginx html directory
+if not exist "%NGINX_DIR%\html\achme" mkdir "%NGINX_DIR%\html\achme"
+xcopy /E /I /Y "%ROOT%\frontend\build\*" "%NGINX_DIR%\html\achme\" >nul 2>&1
+
+:: Open firewall ports
+netsh advfirewall firewall add rule name="ACHME CRM Nginx Port 82"     dir=in action=allow protocol=TCP localport=82   >nul 2>&1
+netsh advfirewall firewall add rule name="ACHME CRM Backend Port 5000" dir=in action=allow protocol=TCP localport=5000 >nul 2>&1
+
+:: ====================================================================
+:: Write Nginx config — listens on ALL interfaces, serves ALL names
+:: ====================================================================
+if exist "%NGINX_DIR%\nginx.exe" (
+  (
+  echo worker_processes 1;
+  echo.
+  echo events {
+  echo     worker_connections 1024;
+  echo }
+  echo.
+  echo http {
+  echo     include       mime.types;
+  echo     default_type  application/octet-stream;
+  echo     sendfile        on;
+  echo     keepalive_timeout 65;
+  echo     access_log  logs/achme_access.log;
+  echo     error_log   logs/achme_error.log;
+  echo.
+  echo     upstream achme_backend {
+  echo         server 127.0.0.1:%BACKEND_PORT%;
+  echo         keepalive 32;
+  echo     }
+  echo.
+  echo     server {
+  echo         listen 0.0.0.0:82;
+  echo         server_name achme.com www.achme.com IBM-SERVER IBM-SERVER.achme.com %LAN_IP% 127.0.0.1 localhost _;
+  echo.
+  echo         root %NGINX_DIR%/html/achme;
+  echo         index index.html;
+  echo.
+  echo         location / {
+  echo             try_files $uri $uri/ /index.html;
+  echo         }
+  echo.
+  echo         location = /index.html {
+  echo             add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+  echo             expires -1;
+  echo         }
+  echo.
+  echo         location /api/ {
+  echo             proxy_pass http://achme_backend/api/;
+  echo             proxy_http_version 1.1;
+  echo             proxy_set_header Host              $host;
+  echo             proxy_set_header X-Real-IP         $remote_addr;
+  echo             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+  echo             proxy_set_header X-Forwarded-Proto $scheme;
+  echo             proxy_connect_timeout  120s;
+  echo             proxy_send_timeout     120s;
+  echo             proxy_read_timeout     120s;
+  echo             client_max_body_size   50M;
+  echo         }
+  echo.
+  echo         location /socket.io/ {
+  echo             proxy_pass http://achme_backend/socket.io/;
+  echo             proxy_http_version 1.1;
+  echo             proxy_set_header Upgrade    $http_upgrade;
+  echo             proxy_set_header Connection "upgrade";
+  echo             proxy_set_header Host              $host;
+  echo             proxy_set_header X-Real-IP         $remote_addr;
+  echo             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+  echo             proxy_connect_timeout  60s;
+  echo             proxy_send_timeout     60s;
+  echo             proxy_read_timeout     3600s;
+  echo         }
+  echo.
+  echo         location /nginx-health {
+  echo             return 200 "Nginx OK - ACHME CRM\n";
+  echo             add_header Content-Type text/plain;
+  echo         }
+  echo.
+  echo         location ~* \.(js^|css^|png^|jpg^|jpeg^|gif^|ico^|svg^|woff^|woff2^|ttf^|eot^)$ {
+  echo             expires 1y;
+  echo             add_header Cache-Control "public, immutable";
+  echo             access_log off;
+  echo         }
+  echo.
+  echo         location ~ /\. {
+  echo             deny all;
+  echo         }
+  echo     }
+  echo }
+  ) > "%NGINX_DIR%\conf\nginx.conf"
+)
+
+:: Start or reload Nginx
+if exist "%NGINX_DIR%\nginx.exe" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-NetTCPConnection -State Listen -LocalPort 82 -ErrorAction SilentlyContinue) { Start-Process '%NGINX_DIR%\nginx.exe' -ArgumentList '-s','reload' -WorkingDirectory '%NGINX_DIR%' -WindowStyle Hidden } else { Start-Process '%NGINX_DIR%\nginx.exe' -WorkingDirectory '%NGINX_DIR%' -WindowStyle Hidden; Start-Sleep 3 }" >nul 2>&1
+)
+
+:: ====================================================================
+:: STEP 8 — Start PM2 backend
+:: ====================================================================
+echo  [8/8] Starting backend (PM2)...
+cd /d "%ROOT%\backend"
+where pm2 >nul 2>&1
+if errorlevel 1 call npm install -g pm2 >nul 2>&1
+pm2 delete achme-backend >nul 2>&1
+if exist "%ROOT%\backend\ecosystem.production.config.js" (
+  pm2 start ecosystem.production.config.js >nul 2>&1
+) else (
+  pm2 start server.js --name achme-backend --env production >nul 2>&1
+)
+pm2 save >nul 2>&1
+
+:: ====================================================================
+:: Run install-boot-startup in background (registers auto-start tasks)
+:: ====================================================================
+start "" /b powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath '%ROOT%\install-boot-startup.bat' -ArgumentList '/silent' -Verb RunAs -WindowStyle Hidden" >nul 2>&1
+
+:: ====================================================================
+:: Wait a moment then verify everything is running
+:: ====================================================================
+timeout /t 3 /nobreak >nul
+
+:: ====================================================================
+:: SHOW STATUS — stays open forever until user presses Ctrl+C
+:: ====================================================================
+:show_status
+cls
+color 0A
+echo.
+echo  =====================================================================
+echo    ACHME CRM IS RUNNING
+echo  =====================================================================
+echo.
+echo    Server IP  : %LAN_IP%
+echo    Frontend   : Port %FRONTEND_PORT%
+echo    Backend    : Port %BACKEND_PORT%
+echo.
+echo  ---- ACCESS URLS -----------------------------------------------
+echo.
+echo    From THIS server machine:
+echo      http://localhost:%FRONTEND_PORT%
+echo      http://127.0.0.1:%FRONTEND_PORT%
+echo.
+echo    From any employee PC on LAN:
+echo      http://%LAN_IP%:%FRONTEND_PORT%
+echo      http://achme.com         (after employee-hosts-setup.bat)
+echo      http://www.achme.com     (after employee-hosts-setup.bat)
+echo      http://IBM-SERVER:%FRONTEND_PORT%    (after employee-hosts-setup.bat)
+echo.
+echo    Backend API health check:
+echo      http://localhost:%BACKEND_PORT%/api/health
+echo      http://%LAN_IP%:%BACKEND_PORT%/api/health
+echo.
+echo  ---- QUICK VERIFY ----------------------------------------------
+echo.
+
+:: Live check Nginx
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r = Invoke-WebRequest -Uri 'http://localhost:%FRONTEND_PORT%/nginx-health' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop; Write-Host '    Nginx (Port %FRONTEND_PORT%):  RUNNING  OK' -ForegroundColor Green } catch { Write-Host '    Nginx (Port %FRONTEND_PORT%):  [!] NOT RESPONDING' -ForegroundColor Red }"
+
+:: Live check Backend
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r = Invoke-WebRequest -Uri 'http://localhost:%BACKEND_PORT%/api/health' -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop; Write-Host '    Backend (Port %BACKEND_PORT%): RUNNING  OK' -ForegroundColor Green } catch { Write-Host '    Backend (Port %BACKEND_PORT%): [!] NOT RESPONDING' -ForegroundColor Red }"
+
+echo.
+echo  ---- LOGIN -----------------------------------------------------
+echo.
+echo    Admin login:  Kk@achmecommunication.com
+echo.
+if "%IP_IS_DYNAMIC%"=="1" (
+  echo    [INFO] IP was DYNAMIC and has been frozen to STATIC: %LAN_IP%
+)
+echo  ================================================================
+echo.
+echo    This window must stay open to keep CRM running.
+echo    Press Ctrl+C to stop the CRM, or just close this window.
+echo.
+echo  ================================================================
+
+:: Keep window open - refresh status every 60 seconds
+:keep_alive
+timeout /t 60 /nobreak >nul
+goto :show_status
 
 :fail
+cls
+color 0C
 echo.
-echo [FAIL] Setup failed. Check the error above, then run this file again.
+echo  =====================================================================
+echo    ACHME CRM STARTUP FAILED
+echo  =====================================================================
+echo.
+echo    Check the log file for details:
+echo    %LOG_DIR%\start-servers.log
+echo.
+echo    Common fixes:
+echo      1. Make sure MySQL is running
+echo      2. Make sure Node.js is installed
+echo      3. Run this file as Administrator
+echo.
 pause
 exit /b 1

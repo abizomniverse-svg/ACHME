@@ -374,7 +374,7 @@ router.get("/download-pdf/:id", verifyToken, async (req, res) => {
 router.post("/send-email/:id", verifyToken, (req, res) => {
   const { id } = req.params;
   const { id: user_id, role } = req.user;
-  const { to, subject, cc } = req.body;
+  const { to, subject, cc, body } = req.body;
 
   const headerSql = `
     SELECT p.*, c.email, c.customer_name, c.mobile_number, c.location_city,
@@ -410,14 +410,21 @@ router.post("/send-email/:id", verifyToken, (req, res) => {
         // Generate PDF with exact same design as the app
         const pdfBuffer = await generateInvoicePdf({ invoice, items, type: "performa", label: "PROFORMA INVOICE", prefix: "PI" });
 
-        // Generate HTML email body with form.html styling
-        const emailHtml = generateEmailHtml({
-          invoice,
-          items,
-          type: "proforma",
-          docNumber: piNumber,
-          docLabel: "PROFORMA INVOICE",
-        });
+        // Generate HTML email body based on custom or default content
+        const mailText = (body && body.trim()) ? body.replace(/\n/g, "<br/>") : `Dear Customer,<br/><br/>Greeting from Achme Communication.<br/><br/>Please find the attached Proforma Invoice document (<strong>${piNumber}</strong>) for your review.<br/><br/>Best regards,<br/><strong>Achme Communication</strong>`;
+        const emailHtml = `
+          <div style="font-family: 'Outfit', 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); background-color: #ffffff;">
+            <div style="background: linear-gradient(135deg, #1e3a8a, #3b82f6); padding: 24px; text-align: center; color: white;">
+              <h2 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.5px;">ACHME COMMUNICATION</h2>
+            </div>
+            <div style="padding: 32px; color: #334155; line-height: 1.6; font-size: 15px;">
+              ${mailText}
+            </div>
+            <div style="background-color: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0;">
+              <p style="margin: 0;">This is an automated email from Achme Communication. Please do not reply to this email directly.</p>
+            </div>
+          </div>
+        `;
 
         const { getTransporterForUser } = require("../backendutil/emailConfig");
         const { transporter, fromAddress } = await getTransporterForUser(req.user.id);

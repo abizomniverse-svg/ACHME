@@ -65,6 +65,7 @@ const ServiceEstimation = () => {
     const [mailTo, setMailTo] = useState("");
     const [mailCc, setMailCc] = useState("");
     const [mailSubject, setMailSubject] = useState("");
+    const [mailContent, setMailContent] = useState("");
     const [mailSending, setMailSending] = useState(false);
     const [showSMTPPrompt, setShowSMTPPrompt] = useState(false);
     const [descInput, setDescInput] = useState("");
@@ -385,7 +386,7 @@ const ServiceEstimation = () => {
     };
     const openMailModal = async () => {
         const id = viewId || selectedId;
-        if (!id) return alert("Select an invoice to send");
+        if (!id) return alert("Please select a service estimation first");
         try {
             const res = await axios.get(`${API}/api/auth/check-email-config`, getAuthConfig());
             if (!res.data.hasConfig) {
@@ -396,10 +397,18 @@ const ServiceEstimation = () => {
             console.error("Error checking SMTP config before sending mail:", e);
         }
         const inv = findInvoice(id);
-        const adminEmail = (() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })();
+        let adminEmail = "";
+        try {
+            const adminRes = await axios.get(`${API}/api/auth/admin-email`, getAuthConfig());
+            adminEmail = adminRes.data.email || "";
+        } catch (e) {
+            console.error("Error fetching admin email:", e);
+            adminEmail = "admin@achme.com";
+        }
         setMailTo(inv?.email || "");
         setMailCc(adminEmail);
         setMailSubject(`Service Estimation ${formatSENumber(id, inv?.invoice_date)}`);
+        setMailContent("");
         setMailOpen(true);
     };
     const handleSendEmail = async () => {
@@ -407,7 +416,7 @@ const ServiceEstimation = () => {
         if (!mailTo) return alert("Please enter recipient email");
         setMailSending(true);
         try {
-            await axios.post(`${API}/api/service-estimation/send-email/${id}`, { to: mailTo, cc: mailCc, subject: mailSubject }, getAuthConfig());
+            await axios.post(`${API}/api/service-estimation/send-email/${id}`, { to: mailTo, cc: mailCc, subject: mailSubject, body: mailContent }, getAuthConfig());
             alert("Email sent successfully"); setMailOpen(false);
         } catch (error) { alert(error.response?.data?.message || "Failed to send email"); }
         finally { setMailSending(false); }
@@ -440,12 +449,14 @@ const ServiceEstimation = () => {
                         <Search size={18} className="text-gray-500" />
                         <input type="text" placeholder="Search by customer..." className="outline-none text-sm w-40 bg-transparent" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                     </div>
-                    {/* <div className="flex items-center gap-2 mt-2">
+                    <div className="flex items-center gap-2 mt-2">
                         <button onClick={async () => {
                             const id = viewId || selectedId;
-                            if (!id) return alert("Select an invoice first");
+                            if (!id) return alert("Please select a service estimation first");
                             try {
-                                const res = await fetch(`${API}/api/service-estimation/download-pdf/${id}`, { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } });
+                                const res = await fetch(`${API}/api/service-estimation/download-pdf/${id}`, {
+                                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+                                });
                                 if (!res.ok) { const err = await res.json(); return alert(err.message || "Download failed"); }
                                 if (!res.headers.get("content-type")?.includes("application/pdf")) { const err = await res.json(); return alert(err.message || "Invalid response"); }
                                 const blob = await res.blob();
@@ -455,11 +466,10 @@ const ServiceEstimation = () => {
                                 a.click(); URL.revokeObjectURL(url);
                             } catch (e) { alert("Download failed: " + e.message); }
                         }} title="Download PDF" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Download size={20} /></button>
-                        <button onClick={async()=>{const id=viewId||selectedId;if(!id)return alert("Select an invoice first");try{const res=await fetch(`${API}/api/service-estimation/${id}`,{headers:{Authorization:`Bearer ${localStorage.getItem("token")}`}});if(!res.ok)throw new Error("Failed");const data=await res.json();downloadAsHtml(data,"service");}catch(e){alert("Download failed: "+e.message);}}} title="Download HTML" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><FileText size={18} /></button>
                         <button onClick={openMailModal} title="Send Email" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Mail size={18} /></button>
-                        <button onClick={() => { if (!selectedId) return alert("Select an item"); handleEdit(selectedId); }} title="Edit" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Edit2 size={18} /></button>
+                        <button onClick={() => { if (!selectedId) return alert("Please select a service estimation first"); handleEdit(selectedId); }} title="Edit" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Edit2 size={18} /></button>
                         <button onClick={handleDelete} title="Delete" className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition"><Trash2 size={18} className="text-red-500" /></button>
-                    </div> */}
+                    </div>
                     <div className="mt-2">
                         <button onClick={() => { resetForm(); setOpen(true); }} className="bg-[#FF3355] text-white w-12 h-12 rounded-full flex justify-center items-center shadow-lg hover:bg-[#e62848] transition"><Plus size={24} /></button>
                     </div>
@@ -1064,13 +1074,14 @@ const ServiceEstimation = () => {
                             <label className="text-xs font-bold text-gray-500 uppercase">To (Email)</label>
                             <input type="email" value={mailTo} onChange={e => setMailTo(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" placeholder="recipient@email.com" />
                         </div>
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs font-bold text-gray-500 uppercase">CC (Email)</label>
-                            <input type="email" value={mailCc} onChange={e => setMailCc(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" placeholder="cc@email.com" />
-                        </div>
+                        {/* CC admin email sent silently — not shown to user */}
                         <div className="flex flex-col gap-1">
                             <label className="text-xs font-bold text-gray-500 uppercase">Subject</label>
                             <input type="text" value={mailSubject} onChange={e => setMailSubject(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-bold text-gray-500 uppercase">Content (Optional)</label>
+                            <textarea value={mailContent} onChange={e => setMailContent(e.target.value)} rows={4} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100 resize-none text-sm" placeholder="Enter custom email message... (Default greeting will be sent if empty)" />
                         </div>
                     </div>
                     <div className="flex gap-4 pt-6">

@@ -90,6 +90,7 @@ app.use("/api/targets", require("./routes/targetRoutes"));
 app.use("/api/amc", require("./routes/amcRoutes"));
 app.use("/api/reports", require("./routes/reportRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
+app.use("/api/setup", require("./routes/setupRoutes"));
 
 app.use("/uploads", express.static("uploads"));
 

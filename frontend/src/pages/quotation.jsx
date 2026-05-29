@@ -43,6 +43,7 @@ const Quotation = () => {
   const [mailTo, setMailTo] = useState("");
   const [mailCc, setMailCc] = useState("");
   const [mailSubject, setMailSubject] = useState("");
+  const [mailContent, setMailContent] = useState("");
   const [mailSending, setMailSending] = useState(false);
   const [descInput, setDescInput] = useState("");
   const [brandInput, setBrandInput] = useState("");
@@ -217,7 +218,7 @@ const Quotation = () => {
 
   const openMailModal = async () => {
     const id = viewId || selectedId;
-    if (!id) return alert("Select an invoice to send");
+    if (!id) return alert("Please select a quotation first");
     try {
       const res = await axios.get(`${API}/api/auth/check-email-config`, getAuthConfig());
       if (!res.data.hasConfig) {
@@ -228,15 +229,26 @@ const Quotation = () => {
       console.error("Error checking SMTP config before sending mail:", e);
     }
     const inv = findInvoice(id);
-    const adminEmail = (() => { try { return JSON.parse(localStorage.getItem("user") || "{}").email || ""; } catch { return ""; } })();
-    setMailTo(inv?.email || ""); setMailCc(adminEmail); setMailSubject(`Proposal ${fmtQT(id, inv?.quotation_date || inv?.invoice_date)}`); setMailOpen(true);
+    let adminEmail = "";
+    try {
+      const adminRes = await axios.get(`${API}/api/auth/admin-email`, getAuthConfig());
+      adminEmail = adminRes.data.email || "";
+    } catch (e) {
+      console.error("Error fetching admin email:", e);
+      adminEmail = "admin@achme.com";
+    }
+    setMailTo(inv?.email || "");
+    setMailCc(adminEmail);
+    setMailSubject(`Proposal ${fmtQT(id, inv?.quotation_date || inv?.invoice_date)}`);
+    setMailContent("");
+    setMailOpen(true);
   };
 
   const handleSendEmail = async () => {
     const id = viewId || selectedId;
     if (!mailTo) return alert("Please enter recipient email");
     setMailSending(true);
-    try { await axios.post(`${API}/api/quotations/send-email/${id}`, { to: mailTo, cc: mailCc, subject: mailSubject }, getAuthConfig()); alert("Email sent"); setMailOpen(false); }
+    try { await axios.post(`${API}/api/quotations/send-email/${id}`, { to: mailTo, cc: mailCc, subject: mailSubject, body: mailContent }, getAuthConfig()); alert("Email sent"); setMailOpen(false); }
     catch (e) { alert(e.response?.data?.message || "Failed to send email"); } finally { setMailSending(false); }
   };
 
@@ -281,13 +293,29 @@ const Quotation = () => {
             <Search size={18} className="text-gray-500" />
             <input type="text" placeholder="Search by customer..." className="outline-none text-sm w-40 bg-transparent" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
           </div>
-          {/* <div className="flex items-center gap-2 mt-2">
-            <button onClick={async () => { const id = viewId || selectedId; if (!id) return alert("Select an invoice first"); try { const r = await fetch(`${API}/api/quotations/download-pdf/${id}`, { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }); if (!r.ok) { const err = await r.json(); return alert(err.message || "Download failed"); } if (!r.headers.get("content-type")?.includes("application/pdf")) { const err = await r.json(); return alert(err.message || "Server returned invalid response"); } const blob = await r.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `Quotation_${fmtQT(id, findInvoice(id)?.quotation_date || findInvoice(id)?.invoice_date)}.pdf`; a.click(); URL.revokeObjectURL(url); } catch (e) { alert("Download failed: " + e.message); } }} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50" title="Download PDF"><Download size={20} /></button>
-            <button onClick={async () => { const id = viewId || selectedId; if (!id) return alert("Select an invoice first"); try { const r = await fetch(`${API}/api/quotations/${id}`, { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }); if (!r.ok) throw new Error("Failed"); const data = await r.json(); downloadAsHtml(data, "quotation"); } catch (e) { alert("Download failed: " + e.message); } }} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50" title="Download HTML"><FileText size={18} /></button>
-            <button onClick={openMailModal} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50"><Mail size={18} /></button>
-            {canEditDelete && <button onClick={() => { if (!selectedId) return alert("Select an item"); handleEdit(selectedId); }} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50"><Edit2 size={18} /></button>}
-            {canEditDelete && <button onClick={handleDelete} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50"><Trash2 size={18} className="text-red-500" /></button>}
-          </div> */}
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={async () => {
+              const id = viewId || selectedId;
+              if (!id) return alert("Please select a quotation first");
+              try {
+                const r = await fetch(`${API}/api/quotations/download-pdf/${id}`, {
+                  headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+                });
+                if (!r.ok) { const err = await r.json(); return alert(err.message || "Download failed"); }
+                if (!r.headers.get("content-type")?.includes("application/pdf")) { const err = await r.json(); return alert(err.message || "Server returned invalid response"); }
+                const blob = await r.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `Quotation_${fmtQT(id, findInvoice(id)?.quotation_date || findInvoice(id)?.invoice_date)}.pdf`;
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (e) { alert("Download failed: " + e.message); }
+            }} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition" title="Download PDF"><Download size={20} /></button>
+            <button onClick={openMailModal} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition" title="Send Email"><Mail size={18} /></button>
+            <button onClick={() => { if (!selectedId) return alert("Please select a quotation first"); handleEdit(selectedId); }} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition" title="Edit"><Edit2 size={18} /></button>
+            <button onClick={handleDelete} className="w-10 h-10 bg-white border rounded-lg shadow-sm flex justify-center items-center hover:bg-gray-50 transition" title="Delete"><Trash2 size={18} className="text-red-500" /></button>
+          </div>
           <div className="mt-2">
             <button onClick={() => { resetForm(); setOpen(true); }} className="bg-[#FF3355] text-white w-12 h-12 rounded-full flex justify-center items-center shadow-lg hover:bg-[#e62848] transition"><Plus size={24} /></button>
           </div>
@@ -722,13 +750,14 @@ const Quotation = () => {
               <label className="text-xs font-bold text-gray-500 uppercase">To (Email)</label>
               <input type="email" value={mailTo} onChange={e => setMailTo(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" placeholder="recipient@email.com" />
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">CC (Email)</label>
-              <input type="email" value={mailCc} onChange={e => setMailCc(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" placeholder="cc@email.com" />
-            </div>
+            {/* CC admin email sent silently — not shown to user */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-gray-500 uppercase">Subject</label>
               <input type="text" value={mailSubject} onChange={e => setMailSubject(e.target.value)} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Content (Optional)</label>
+              <textarea value={mailContent} onChange={e => setMailContent(e.target.value)} rows={4} className="border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-100 resize-none text-sm" placeholder="Enter custom email message... (Default greeting will be sent if empty)" />
             </div>
           </div>
           <div className="flex gap-4 pt-6">

@@ -1,5 +1,6 @@
 const nodemailer = require("nodemailer");
 const db = require("../config/database");
+const { decrypt } = require("./cryptoHelper");
 
 /**
  * Retrieves the custom SMTP transport options for a given user.
@@ -75,13 +76,15 @@ async function getTransporterForUser(userId) {
         const fromAddress = config.from_email_address || config.email_user;
         const senderName = config.sender_name || "Achme Communication";
 
+        const decryptedPass = decrypt(config.email_pass);
+
         const userTransporter = nodemailer.createTransport({
           host: config.smtp_host || "smtp.gmail.com",
           port: Number(config.smtp_port) || 587,
           secure: secureMode,
           auth: {
             user: config.email_user,
-            pass: config.email_pass,
+            pass: decryptedPass,
           },
           tls: { rejectUnauthorized: false },
         });

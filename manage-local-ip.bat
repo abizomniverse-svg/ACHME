@@ -1,16 +1,35 @@
 @echo off
 setlocal enabledelayedexpansion
-title ACHME CRM — Local IP and DNS Manager
+title ACHME CRM - Local IP and DNS Manager
 color 0B
 
 :: ====================================================================
-:: ACHME CRM — LOCAL IP & DNS MANAGEMENT UTILITY (STATIC IP FREEZER)
+:: ACHME CRM — LOCAL IP & DNS MANAGEMENT UTILITY
+::
+:: Usage:
+::   manage-local-ip.bat                  — Interactive menu
+::   manage-local-ip.bat /silent          — Auto freeze + update everything
+::   manage-local-ip.bat /update-hosts-only — Only update hosts file silently
 :: ====================================================================
 
-:: STEP 1: Verify and request Administrator privileges
+set "SILENT_MODE=0"
+set "HOSTS_ONLY=0"
+if /I "%~1"=="/silent" set "SILENT_MODE=1"
+if /I "%~1"=="/update-hosts-only" set "HOSTS_ONLY=1"
+
+:: ----------------------------------------------------------------
+:: Admin check - silently elevate if needed
+:: ----------------------------------------------------------------
 net session >nul 2>&1
-if not errorlevel 1 (
-    goto :admin_authenticated
+if not errorlevel 1 goto :admin_authenticated
+
+if "%SILENT_MODE%"=="1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -ArgumentList '/silent' -Verb RunAs -WindowStyle Hidden"
+  exit /b 0
+)
+if "%HOSTS_ONLY%"=="1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -ArgumentList '/update-hosts-only' -Verb RunAs -WindowStyle Hidden"
+  exit /b 0
 )
 
 echo.
@@ -25,32 +44,32 @@ exit /b 0
 cd /d "%~dp0"
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
+set "LOG_DIR=%ROOT%\logs"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
+:: ---- Route based on mode ----
+if "%SILENT_MODE%"=="1" goto :silent_freeze
+if "%HOSTS_ONLY%"=="1" goto :hosts_only_mode
+
+:: ====================================================================
+:: INTERACTIVE MENU MODE
+:: ====================================================================
 :menu
 cls
 echo ==========================================================================================
-echo    ___   ___ _  _ __  __ ___    ___ ___  __  __
-echo   / _ \ / __| |_| |  \/  | __|  / __| _ \|  \/  |
-echo  | (_) | (__|  _  | |    | |_|  | (__|   /| |  | |
-echo   \___/ \___|_| |_|_|\/|_|___|  \___|_|_\\|_|  |_|
-echo.
-echo   LOCAL IP STATIC FREEZER & DNS MANAGER (RUNNING AS ADMIN)
+echo   ACHME CRM - LOCAL IP STATIC FREEZER & DNS MANAGER
 echo ==========================================================================================
 echo.
-echo   Dynamic IPs change every time you switch or reconnect Wi-Fi.
-echo   Use this tool to FREEZE your current active local IP to Static so that
-echo   your employees can ALWAYS access the CRM using the same IP or domain.
+echo   Dynamic IPs change every time you switch or reconnect Wi-Fi/LAN.
+echo   Freeze your current IP to Static so employees always access CRM at the same IP.
 echo.
-echo   [CHOOSE AN OPTION BELOW]
-echo   ----------------------------------------------------------------------------------------
-echo   [1] Freeze Current Active Local IP as STATIC (Recommended - Freeze IP)
-echo   [2] Revert Local IP Network Card to DYNAMIC (DHCP - Standard Mode)
-echo   [3] Update Hosts File DNS Mappings Only (achme.com & achme-vignesh.local)
+echo   [1] Freeze Current Active Local IP as STATIC (Recommended)
+echo   [2] Revert to DYNAMIC (DHCP - Standard Mode)
+echo   [3] Update Hosts File DNS Mappings Only
 echo   [4] Update Backend & Frontend .env Files to Active IP
-echo   [5] Run FULL SYSTEM OPTIMIZATION (Option 1 + 3 + 4 + Flush DNS)
+echo   [5] Run FULL SYSTEM OPTIMIZATION (Freeze + Hosts + .env + DNS flush)
 echo   [6] Show Current Network & IP Status
 echo   [7] Exit
-echo   ----------------------------------------------------------------------------------------
 echo.
 set /p "choice=Enter option (1-7): "
 
@@ -94,23 +113,7 @@ if /I not "%confirm%"=="Y" goto menu
 
 echo.
 echo  Configuring Static IP Address in progress...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$adapter = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1;" ^
-  "$ipConf = Get-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1;" ^
-  "$gw = (Get-NetRoute -InterfaceIndex $adapter.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop;" ^
-  "if (-not $gw) { $octets = $ipConf.IPAddress.Split('.'); $gw = \"$($octets[0]).$($octets[1]).$($octets[2]).1\" };" ^
-  "$dns = (Get-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4).ServerAddresses;" ^
-  "if (-not $dns) { $dns = @('1.1.1.1', '8.8.8.8') };" ^
-  "Set-NetIPInterface -InterfaceIndex $adapter.InterfaceIndex -Dhcp Disabled -ErrorAction SilentlyContinue;" ^
-  "Remove-NetRoute -InterfaceIndex $adapter.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -Confirm:$false -ErrorAction SilentlyContinue;" ^
-  "Remove-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue;" ^
-  "New-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -IPAddress $ipConf.IPAddress -PrefixLength $ipConf.PrefixLength -DefaultGateway $gw -ErrorAction SilentlyContinue | Out-Null;" ^
-  "Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses $dns -ErrorAction SilentlyContinue;" ^
-  "Write-Host '  [OK] Static IP configured successfully!' -ForegroundColor Green;"
-if errorlevel 1 (
-    echo.
-    echo  [FAIL] Failed to apply Static IP settings. Verify your adapter manually.
-)
+call :sub_freeze_ip
 echo.
 pause
 goto menu
@@ -142,10 +145,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ResetServerAddresses -ErrorAction SilentlyContinue;" ^
   "Restart-NetAdapter -InterfaceIndex $adapter.InterfaceIndex -Confirm:$false -ErrorAction SilentlyContinue;" ^
   "Write-Host '  [OK] Reverted adapter to DHCP successfully!' -ForegroundColor Green;"
-if errorlevel 1 (
-    echo.
-    echo  [FAIL] Reverting to DHCP encountered an error.
-)
 echo.
 pause
 goto menu
@@ -159,7 +158,7 @@ echo ====================================================================
 echo  UPDATING LOCAL DNS (C:\Windows\System32\drivers\etc\hosts)
 echo ====================================================================
 echo.
-call :sub_update_hosts
+call :sub_update_hosts_server
 echo.
 pause
 goto menu
@@ -187,43 +186,21 @@ echo ====================================================================
 echo  RUNNING FULL SYSTEM OPTIMIZATION
 echo ====================================================================
 echo.
-
-:: 1. Freeze IP
 echo [1/4] Freezing Dynamic IP to Static...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$adapter = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1;" ^
-  "if (-not $adapter) { Write-Host '  [FAIL] No active network adapter found!' -ForegroundColor Red; exit 1 };" ^
-  "$ipConf = Get-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1;" ^
-  "$gw = (Get-NetRoute -InterfaceIndex $adapter.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop;" ^
-  "if (-not $gw) { $octets = $ipConf.IPAddress.Split('.'); $gw = \"$($octets[0]).$($octets[1]).$($octets[2]).1\" };" ^
-  "$dns = (Get-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4).ServerAddresses;" ^
-  "if (-not $dns) { $dns = @('1.1.1.1', '8.8.8.8') };" ^
-  "Set-NetIPInterface -InterfaceIndex $adapter.InterfaceIndex -Dhcp Disabled -ErrorAction SilentlyContinue;" ^
-  "Remove-NetRoute -InterfaceIndex $adapter.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -Confirm:$false -ErrorAction SilentlyContinue;" ^
-  "Remove-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue;" ^
-  "New-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -IPAddress $ipConf.IPAddress -PrefixLength $ipConf.PrefixLength -DefaultGateway $gw -ErrorAction SilentlyContinue | Out-Null;" ^
-  "Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses $dns -ErrorAction SilentlyContinue;" ^
-  "Write-Host '  [OK] Static IP Frozen: ' $ipConf.IPAddress -ForegroundColor Green;"
+call :sub_freeze_ip
 echo.
-
-:: 2. Update Hosts file
 echo [2/4] Updating Local Hosts DNS file...
-call :sub_update_hosts
+call :sub_update_hosts_server
 echo.
-
-:: 3. Update Env files
 echo [3/4] Updating Backend & Frontend .env variables...
 call :sub_update_env
 echo.
-
-:: 4. Flush DNS Resolver Cache
 echo [4/4] Flushing local DNS cache...
 ipconfig /flushdns >nul
 echo   [OK] Windows DNS resolver cache flushed successfully.
 echo.
 echo ====================================================================
 echo  FULL SYSTEM OPTIMIZATION COMPLETED SUCCESSFULLY!
-echo  Your IP is locked, DNS mapped, and system is fully optimized.
 echo ====================================================================
 echo.
 pause
@@ -244,111 +221,161 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ipConf = Get-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1;" ^
   "$gw = (Get-NetRoute -InterfaceIndex $adapter.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop;" ^
   "$dns = (Get-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4).ServerAddresses;" ^
-  "Write-Host '  ➜ Network Adapter:  ' $adapter.InterfaceAlias -ForegroundColor Cyan;" ^
-  "if ($adapter.Dhcp -eq 'Enabled') {" ^
-  "  Write-Host '  ➜ DHCP (IP Mode):   DYNAMIC (IP changes on Wi-Fi reconnects)' -ForegroundColor Yellow" ^
-  "} else {" ^
-  "  Write-Host '  ➜ DHCP (IP Mode):   STATIC (IP Frozen - Safe for Employees)' -ForegroundColor Green" ^
-  "}" ^
-  "Write-Host '  ➜ Active IPv4 IP:   ' $ipConf.IPAddress -ForegroundColor Cyan;" ^
-  "Write-Host '  ➜ Subnet Mask:      /' $ipConf.PrefixLength -ForegroundColor Cyan;" ^
-  "Write-Host '  ➜ Default Gateway:  ' $gw -ForegroundColor Cyan;" ^
-  "Write-Host '  ➜ Primary DNS:      ' ($dns -join ', ') -ForegroundColor Cyan;"
+  "Write-Host '  Network Adapter:  ' $adapter.InterfaceAlias -ForegroundColor Cyan;" ^
+  "if ($adapter.Dhcp -eq 'Enabled') { Write-Host '  DHCP (IP Mode):   DYNAMIC - IP may change on reconnect' -ForegroundColor Yellow } else { Write-Host '  DHCP (IP Mode):   STATIC - IP is frozen, safe for employees' -ForegroundColor Green };" ^
+  "Write-Host '  Active IPv4 IP:   ' $ipConf.IPAddress -ForegroundColor Cyan;" ^
+  "Write-Host '  Subnet Mask:      /' $ipConf.PrefixLength -ForegroundColor Cyan;" ^
+  "Write-Host '  Default Gateway:  ' $gw -ForegroundColor Cyan;" ^
+  "Write-Host '  Primary DNS:      ' ($dns -join ', ') -ForegroundColor Cyan;"
 echo.
-echo  --------------------------------------------------------------------
-echo  Mapped Domains in C:\Windows\System32\drivers\etc\hosts:
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Select-String -Path '$env:SystemRoot\System32\drivers\etc\hosts' -Pattern 'achme.com' | ForEach-Object { '  ' + $_.Line }"
-echo  --------------------------------------------------------------------
+echo  Mapped Domains in hosts file:
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Content \"$env:SystemRoot\System32\drivers\etc\hosts\" | Where-Object { $_ -match 'achme|IBM-SERVER' -and $_.Trim() -notlike '#*' } | ForEach-Object { Write-Host ('    ' + $_) -ForegroundColor Yellow }"
 echo.
 pause
 goto menu
 
-
 :: ====================================================================
-:: REUSABLE SUB-ROUTINES
+:: SILENT AUTO-FREEZE MODE (/silent)
+:: Called by start-servers.bat when IP is DYNAMIC
 :: ====================================================================
+:silent_freeze
+set "LOG=%LOG_DIR%\manage-local-ip-silent.log"
+echo [%DATE% %TIME%] Silent freeze started >> "%LOG%"
 
-:sub_update_hosts
-:: Resolve active LAN IP dynamically
-set "ACTIVE_IP="
-for /f "usebackq tokens=*" %%I in (
-  `powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ip = (Find-NetRoute -RemoteIPAddress '8.8.8.8' -ErrorAction SilentlyContinue | Select-Object -First 1).LocalIPAddress; if (-not $ip) { $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress }; $ip"`
-) do set "ACTIVE_IP=%%I"
+:: 1. Freeze IP to static
+call :sub_freeze_ip_silent >> "%LOG%" 2>&1
+echo [%DATE% %TIME%] IP frozen to static >> "%LOG%"
 
-if "%ACTIVE_IP%"=="" set "ACTIVE_IP=127.0.0.1"
+:: 2. Update SERVER hosts file (using LAN IP - NOT 127.0.0.1)
+call :sub_update_hosts_server >> "%LOG%" 2>&1
+echo [%DATE% %TIME%] Server hosts file updated >> "%LOG%"
 
-echo   Active Local IP detected: %ACTIVE_IP%
-echo   Mapping local domains to %ACTIVE_IP%...
+:: 3. Update env files
+call :sub_update_env >> "%LOG%" 2>&1
+echo [%DATE% %TIME%] .env files updated >> "%LOG%"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$hostsFile = \"$env:SystemRoot\System32\drivers\etc\hosts\";" ^
-  "$domains = @('achme.com', 'www.achme.com');" ^
-  "$content = Get-Content $hostsFile;" ^
-  "$filtered = $content | Where-Object { $line = $_.Trim(); $match = $false; foreach($d in $domains) { if ($line -match \"\\b$d\\b\") { $match = $true } }; -not $match };" ^
-  "$newMappings = @(" ^
-  "  \"%ACTIVE_IP%    achme.com    www.achme.com\"" ^
-  ");" ^
-  "$filtered + $newMappings | Set-Content $hostsFile -Force;" ^
-  "Write-Host '  [OK] hosts file mapped to active IP successfully!' -ForegroundColor Green;"
+:: 4. Flush DNS
+ipconfig /flushdns >nul
+echo [%DATE% %TIME%] DNS flushed >> "%LOG%"
 
-:: Update the employee hosts setup file dynamically with the current active IP
-if exist "%ROOT%\employee-hosts-setup.bat" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-      "(Get-Content '%ROOT%\employee-hosts-setup.bat') -replace 'set \"SERVER_IP=.*\"', 'set \"SERVER_IP=%ACTIVE_IP%\"' | Set-Content '%ROOT%\employee-hosts-setup.bat' -Force;" ^
-      "Write-Host '  [OK] employee-hosts-setup.bat updated with active IP.' -ForegroundColor Green;"
-)
+echo [%DATE% %TIME%] Silent freeze completed >> "%LOG%"
 exit /b 0
 
+:: ====================================================================
+:: HOSTS-ONLY MODE (/update-hosts-only)
+:: Called by start-servers.bat when IP is already STATIC
+:: ====================================================================
+:hosts_only_mode
+set "LOG=%LOG_DIR%\manage-local-ip-silent.log"
+call :sub_update_hosts_server >> "%LOG%" 2>&1
+ipconfig /flushdns >nul
+exit /b 0
 
-:sub_update_env
-:: Resolve active LAN IP dynamically
+:: ====================================================================
+:: REUSABLE SUBROUTINES
+:: ====================================================================
+
+:sub_freeze_ip
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$adapter = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1;" ^
+  "if (-not $adapter) { Write-Host '  [FAIL] No active adapter found!' -ForegroundColor Red; exit 1 };" ^
+  "$ipConf = Get-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1;" ^
+  "$gw = (Get-NetRoute -InterfaceIndex $adapter.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop;" ^
+  "if (-not $gw) { $octets = $ipConf.IPAddress.Split('.'); $gw = ""$($octets[0]).$($octets[1]).$($octets[2]).1"" };" ^
+  "$dns = (Get-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4).ServerAddresses;" ^
+  "if (-not $dns) { $dns = @('1.1.1.1', '8.8.8.8') };" ^
+  "Set-NetIPInterface -InterfaceIndex $adapter.InterfaceIndex -Dhcp Disabled -ErrorAction SilentlyContinue;" ^
+  "Remove-NetRoute -InterfaceIndex $adapter.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -Confirm:$false -ErrorAction SilentlyContinue;" ^
+  "Remove-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue;" ^
+  "New-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -IPAddress $ipConf.IPAddress -PrefixLength $ipConf.PrefixLength -DefaultGateway $gw -ErrorAction SilentlyContinue | Out-Null;" ^
+  "Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses $dns -ErrorAction SilentlyContinue;" ^
+  "Write-Host ('  [OK] Static IP frozen: ' + $ipConf.IPAddress) -ForegroundColor Green;"
+exit /b 0
+
+:sub_freeze_ip_silent
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$adapter = Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' -and $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual|Bluetooth' } | Select-Object -First 1;" ^
+  "if (-not $adapter) { exit 1 };" ^
+  "$ipConf = Get-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1;" ^
+  "$gw = (Get-NetRoute -InterfaceIndex $adapter.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop;" ^
+  "if (-not $gw) { $octets = $ipConf.IPAddress.Split('.'); $gw = ""$($octets[0]).$($octets[1]).$($octets[2]).1"" };" ^
+  "$dns = (Get-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4).ServerAddresses;" ^
+  "if (-not $dns) { $dns = @('1.1.1.1', '8.8.8.8') };" ^
+  "Set-NetIPInterface -InterfaceIndex $adapter.InterfaceIndex -Dhcp Disabled -ErrorAction SilentlyContinue;" ^
+  "Remove-NetRoute -InterfaceIndex $adapter.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -Confirm:$false -ErrorAction SilentlyContinue;" ^
+  "Remove-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue;" ^
+  "New-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -IPAddress $ipConf.IPAddress -PrefixLength $ipConf.PrefixLength -DefaultGateway $gw -ErrorAction SilentlyContinue | Out-Null;" ^
+  "Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses $dns -ErrorAction SilentlyContinue;" >nul 2>&1
+exit /b 0
+
+:: ====================================================================
+:: SERVER HOSTS UPDATE — uses LAN IP (NOT 127.0.0.1) for all domains
+:: This is for the SERVER machine itself. Employees use employee-hosts-setup.bat
+:: ====================================================================
+:sub_update_hosts_server
 set "ACTIVE_IP="
 for /f "usebackq tokens=*" %%I in (
-  `powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ip = (Find-NetRoute -RemoteIPAddress '8.8.8.8' -ErrorAction SilentlyContinue | Select-Object -First 1).LocalIPAddress; if (-not $ip) { $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress }; $ip"`
+  `powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress"`
 ) do set "ACTIVE_IP=%%I"
-
 if "%ACTIVE_IP%"=="" set "ACTIVE_IP=127.0.0.1"
 
-echo   Active Local IP detected: %ACTIVE_IP%
+:: CRITICAL: Map ALL names to the REAL LAN IP (not 127.0.0.1!)
+:: This makes achme.com and IBM-SERVER work from employees AND from the server itself
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$hostsFile = ""$env:SystemRoot\System32\drivers\etc\hosts"";" ^
+  "$domains = @('achme.com', 'www.achme.com', 'IBM-SERVER', 'IBM-SERVER.achme.com');" ^
+  "$content = [System.IO.File]::ReadAllLines($hostsFile);" ^
+  "$filtered = $content | Where-Object { $line = $_.Trim(); $keep = $true; foreach($d in $domains) { if ($line -match ('(?i)\b' + [regex]::Escape($d) + '\b')) { $keep = $false; break } }; $keep };" ^
+  "$ip = '%ACTIVE_IP%';" ^
+  "$newMappings = @(" ^
+  "    ''," ^
+  "    '# ACHME CRM Server Mapping (auto-updated by manage-local-ip.bat)'," ^
+  "    ($ip + '    achme.com    www.achme.com')," ^
+  "    ($ip + '    IBM-SERVER   IBM-SERVER.achme.com')" ^
+  ");" ^
+  "[System.IO.File]::WriteAllLines($hostsFile, ($filtered + $newMappings));" ^
+  "Write-Host ('  [OK] Server hosts file mapped: achme.com + IBM-SERVER -> ' + $ip) -ForegroundColor Green;" >nul 2>&1
 
-:: 1. Update backend env
-if exist "%ROOT%\backend\.env" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-      "$envFile = '%ROOT%\backend\.env';" ^
-      "$content = Get-Content $envFile;" ^
-      "$updated = $content | ForEach-Object {" ^
-      "  if ($_ -match '^ALLOWED_ORIGIN=') {" ^
-      "    'ALLOWED_ORIGIN=http://localhost:82,http://%ACTIVE_IP%:82,http://achme.com,http://www.achme.com'" ^
-      "  } else {" ^
-      "    $_" ^
-      "  }" ^
-      "};" ^
-      "$updated | Set-Content $envFile -Force;" ^
-      "Write-Host '  [OK] backend\.env written.' -ForegroundColor Green;"
-) else (
-    echo   [WARN] backend\.env not found.
+:: Update employee-hosts-setup.bat SERVER_IP variable to match
+if exist "%ROOT%\employee-hosts-setup.bat" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$f = '%ROOT%\employee-hosts-setup.bat';" ^
+    "$c = [System.IO.File]::ReadAllText($f);" ^
+    "$c = $c -replace 'set ""SERVER_IP=.*""', ('set ""SERVER_IP=%ACTIVE_IP%""');" ^
+    "[System.IO.File]::WriteAllText($f, $c);" >nul 2>&1
 )
 
-:: 2. Update frontend env
+ipconfig /flushdns >nul
+exit /b 0
+
+:sub_update_env
+set "ACTIVE_IP="
+for /f "usebackq tokens=*" %%I in (
+  `powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notmatch 'vEthernet|Loopback|Bluetooth' } | Select-Object -First 1).IPAddress"`
+) do set "ACTIVE_IP=%%I"
+if "%ACTIVE_IP%"=="" set "ACTIVE_IP=127.0.0.1"
+
+if "%SILENT_MODE%"=="0" echo   Active Local IP detected: %ACTIVE_IP%
+
+:: Update backend .env ALLOWED_ORIGIN
+if exist "%ROOT%\backend\.env" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$f = '%ROOT%\backend\.env';" ^
+    "$c = Get-Content $f;" ^
+    "$ip = '%ACTIVE_IP%';" ^
+    "$u = $c | ForEach-Object { if ($_ -match '^ALLOWED_ORIGIN=') { 'ALLOWED_ORIGIN=http://localhost:82,http://127.0.0.1:82,http://' + $ip + ':82,http://achme.com,http://achme.com:82,http://www.achme.com,http://www.achme.com:82,http://IBM-SERVER:82,http://IBM-SERVER.achme.com:82' } else { $_ } };" ^
+    "$u | Set-Content $f -Force;" ^
+    "Write-Host '  [OK] backend\.env ALLOWED_ORIGIN updated.' -ForegroundColor Green;" >nul 2>&1
+)
+
+:: Update frontend .env API URL
 if exist "%ROOT%\frontend\.env" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-      "$envFile = '%ROOT%\frontend\.env';" ^
-      "$content = Get-Content $envFile;" ^
-      "$updated = $content | ForEach-Object {" ^
-      "  if ($_ -match '^REACT_APP_API_URL=') {" ^
-      "    'REACT_APP_API_URL=http://%ACTIVE_IP%:5000'" ^
-      "  } elseif ($_ -match '^REACT_APP_API_PROXY=') {" ^
-      "    'REACT_APP_API_PROXY=http://%ACTIVE_IP%:5000'" ^
-      "  } else {" ^
-      "    $_" ^
-      "  }" ^
-      "};" ^
-      "$updated | Set-Content $envFile -Force;" ^
-      "Write-Host '  [OK] frontend\.env written.' -ForegroundColor Green;"
-) else (
-    echo   [WARN] frontend\.env not found.
+  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$f = '%ROOT%\frontend\.env';" ^
+    "$ip = '%ACTIVE_IP%';" ^
+    "$c = Get-Content $f;" ^
+    "$u = $c | ForEach-Object { if ($_ -match '^REACT_APP_API_URL=') { 'REACT_APP_API_URL=http://' + $ip + ':5000' } elseif ($_ -match '^REACT_APP_API_PROXY=') { 'REACT_APP_API_PROXY=http://' + $ip + ':5000' } else { $_ } };" ^
+    "$u | Set-Content $f -Force;" ^
+    "Write-Host '  [OK] frontend\.env updated.' -ForegroundColor Green;" >nul 2>&1
 )
 exit /b 0

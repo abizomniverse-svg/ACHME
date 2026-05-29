@@ -223,19 +223,23 @@ const [formData, setFormData] = useState({
                   <td className="px-4 py-3 text-center">{getStatusBadge(user.status)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-center gap-2">
-                      <button onClick={() => handleEdit(user)} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Edit">
-                        <Edit2 size={16} />
-                      </button>
-                      <button onClick={() => handleBan(user.id, user.status)} className={`p-2 rounded ${user.status === "banned" ? "text-green-600 hover:bg-green-50" : "text-orange-600 hover:bg-orange-50"}`} title={user.status === "banned" ? "Unban" : "Ban"}>
-                        {user.status === "banned" ? <Unlock size={16} /> : <Ban size={16} />}
-                      </button>
-                      <button onClick={() => handleResetPassword(user.id)} className="p-2 text-purple-600 hover:bg-purple-50 rounded" title="Reset Password">
-                        <AlertCircle size={16} />
-                      </button>
-                      {user.systemRole !== "admin" && (
-                        <button onClick={() => handleDelete(user.id)} className="p-2 text-red-600 hover:bg-red-50 rounded" title="Delete">
-                          <Trash2 size={16} />
-                        </button>
+                      {user.systemRole === "admin" ? (
+                        <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">🔒 Admin</span>
+                      ) : (
+                        <>
+                          <button onClick={() => handleEdit(user)} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Edit">
+                            <Edit2 size={16} />
+                          </button>
+                          <button onClick={() => handleBan(user.id, user.status)} className={`p-2 rounded ${user.status === "banned" ? "text-green-600 hover:bg-green-50" : "text-orange-600 hover:bg-orange-50"}`} title={user.status === "banned" ? "Unban" : "Ban"}>
+                            {user.status === "banned" ? <Unlock size={16} /> : <Ban size={16} />}
+                          </button>
+                          <button onClick={() => handleResetPassword(user.id)} className="p-2 text-purple-600 hover:bg-purple-50 rounded" title="Reset Password">
+                            <AlertCircle size={16} />
+                          </button>
+                          <button onClick={() => handleDelete(user.id)} className="p-2 text-red-600 hover:bg-red-50 rounded" title="Delete">
+                            <Trash2 size={16} />
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -303,7 +307,6 @@ const [formData, setFormData] = useState({
                 <select value={formData.system_role || "employee"} onChange={(e) => setFormData({ ...formData, system_role: e.target.value })} className="w-full border rounded-lg p-2">
                   <option value="employee">Employee (Create/Read Only)</option>
                   <option value="subadmin">Sub-Admin (Full Access Except Users)</option>
-                  <option value="admin">Admin (Full Access)</option>
                 </select>
               </div>
             </div>

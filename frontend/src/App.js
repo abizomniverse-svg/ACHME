@@ -38,6 +38,7 @@ import Settings from "./pages/settings";
 import UserManagement from "./pages/usermanagement";
 import InstallPrompt from "./components/InstallPrompt";
 import PwaManager from "./components/PwaManager";
+import NetworkSetupBanner from "./components/NetworkSetupBanner";
 
 const getApiBackend = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
@@ -123,6 +124,7 @@ export default function App() {
       <NotificationProvider>
         <ToastProvider>
           <DBConnectionChecker />
+          <NetworkSetupBanner />
           <InstallPrompt />
           <PwaManager />
           <BrowserRouter>
