@@ -269,7 +269,21 @@ const Invoice = ({ quotationId, type = "quotation", pdfMode = false }) => {
                       <td data-label="S.NO">{i + 1}</td>
                       {hasBrandModel && <td data-label="BRAND / MODEL">{r.brand_model || "---"}</td>}
                       <td data-label="DESCRIPTION">
-                        <strong>{r.description || "---"}</strong>
+                        {(() => {
+                          const desc = r.description || "---";
+                          const commaIndex = desc.indexOf(",");
+                          if (commaIndex !== -1) {
+                            const heading = desc.substring(0, commaIndex + 1);
+                            const body = desc.substring(commaIndex + 1);
+                            return (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "2px", textAlign: "left" }}>
+                                <span style={{ fontWeight: "700", color: "#1e293b", fontSize: "12px" }}>{heading}</span>
+                                <span style={{ fontWeight: "400", color: "#64748b", fontSize: "10.5px", marginTop: "2px" }}>{body.trim()}</span>
+                              </div>
+                            );
+                          }
+                          return <strong>{desc}</strong>;
+                        })()}
                       </td>
                       {hasHSN && <td data-label="HSN/SAC">{r.hsn_sac || "---"}</td>}
                       <td data-label="QTY">{qty}</td>

@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import { useAuth } from "../auth/AuthContext";
+import { API } from "../config/api";
 import { 
   Sun, Moon, Monitor, Bell, BellOff, Lock, Shield, 
   Palette, Globe, Clock, Save, X, Check, RefreshCw 
@@ -27,6 +30,10 @@ const Settings = () => {
   const [message, setMessage] = useState({ type: "", text: "" });
   const [activeSection, setActiveSection] = useState("appearance");
 
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+  const { user, login } = useAuth();
+
   useEffect(() => {
     const savedSettings = localStorage.getItem("userSettings");
     if (savedSettings) {
@@ -36,7 +43,43 @@ const Settings = () => {
     if (savedTheme) {
       setSettings(prev => ({ ...prev, theme: savedTheme }));
     }
+
+    const fetch2FAStatus = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await axios.get(`${API}/api/auth/profile`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setTwoFactorEnabled(res.data.two_factor_enabled === 1);
+      } catch (err) {
+        console.error("Failed to fetch 2FA status:", err);
+      }
+    };
+    fetch2FAStatus();
   }, []);
+
+  const handle2FAToggle = async () => {
+    setTwoFaLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      const newVal = !twoFactorEnabled;
+      const res = await axios.post(`${API}/api/auth/toggle-2fa`, { isEnabled: newVal }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTwoFactorEnabled(newVal);
+      if (user) {
+        const updatedUser = { ...user, two_factor_enabled: newVal ? 1 : 0 };
+        login(updatedUser);
+      }
+      setMessage({ type: "success", text: res.data.message });
+      setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+    } catch (err) {
+      setMessage({ type: "error", text: err.response?.data?.message || "Failed to update 2FA" });
+      setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+    } finally {
+      setTwoFaLoading(false);
+    }
+  };
 
   const handleSave = () => {
     setSaving(true);
@@ -238,13 +281,22 @@ const Settings = () => {
                       </button>
                     </div>
 
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-3 mb-2">
-                        <Shield size={20} className="text-gray-500" />
-                        <p className="font-medium text-gray-800">Two-Factor Authentication</p>
+                    <div className="p-4 bg-gray-50 rounded-lg flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-3 mb-2">
+                          <Shield size={20} className="text-gray-500" />
+                          <p className="font-medium text-gray-800">Two-Factor Authentication (2FA)</p>
+                        </div>
+                        <p className="text-sm text-gray-500">Require an email verification code (OTP) sent via Nodemailer on password logins.</p>
                       </div>
-                      <p className="text-sm text-gray-500 mb-3">Add an extra layer of security</p>
-                      <span className="inline-block px-3 py-1 bg-gray-200 text-gray-600 rounded-full text-sm">Not Available</span>
+                      <button
+                        type="button"
+                        disabled={twoFaLoading}
+                        onClick={handle2FAToggle}
+                        className={`w-12 h-6 rounded-full transition flex items-center px-0.5 ${twoFactorEnabled ? "bg-blue-500 justify-end" : "bg-gray-300 justify-start"}`}
+                      >
+                        <div className="w-5 h-5 bg-white rounded-full shadow transform transition"></div>
+                      </button>
                     </div>
 
                     <div className="p-4 bg-gray-50 rounded-lg">

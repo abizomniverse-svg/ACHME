@@ -33,17 +33,8 @@ if errorlevel 1 (
 :: DETECT LAN IP AND HOSTNAME
 :: ====================================================================
 set "LAN_IP=127.0.0.1"
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do (
-  set "CANDIDATE=%%a"
-  set "CANDIDATE=!CANDIDATE: =!"
-  set "PREFIX1=!CANDIDATE:~0,4!"
-  set "PREFIX2=!CANDIDATE:~0,8!"
-  if not "!PREFIX1!"=="127." (
-    if not "!PREFIX2!"=="169.254." (
-      set "LAN_IP=!CANDIDATE!"
-      goto :got_ip
-    )
-  )
+for /f "usebackq tokens=*" %%p in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "((Find-NetRoute -RemoteIPAddress '8.8.8.8' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalIPAddress -ErrorAction SilentlyContinue), (Get-NetIPAddress -AddressFamily IPv4 -Type Unicast -ErrorAction SilentlyContinue | Where-Object IPAddress -NotLike '127*' | Where-Object IPAddress -NotLike '169.254*' | Where-Object InterfaceAlias -NotMatch 'vEthernet|Loopback|Bluetooth|Virtual|VMware' | Select-Object -ExpandProperty IPAddress)) | Select-Object -First 1"`) do (
+  set "LAN_IP=%%p"
 )
 :got_ip
 set "PC_HOSTNAME=localhost"
@@ -352,13 +343,13 @@ if errorlevel 1 (
 )
 
 :: Stop old instance, start fresh
-pm2 delete achme-backend >nul 2>&1
+call pm2 delete achme-backend >nul 2>&1
 if exist "%ROOT%\backend\ecosystem.production.config.js" (
-  pm2 start ecosystem.production.config.js >>"%LOGFILE%" 2>&1
+  call pm2 start ecosystem.production.config.js >>"%LOGFILE%" 2>&1
 ) else (
-  pm2 start server.js --name achme-backend --env production >>"%LOGFILE%" 2>&1
+  call pm2 start server.js --name achme-backend --env production >>"%LOGFILE%" 2>&1
 )
-pm2 save >nul 2>&1
+call pm2 save >nul 2>&1
 echo         PM2 backend started. [OK]
 
 :: ====================================================================

@@ -135,11 +135,26 @@ async function generateInvoicePdf({ invoice, items, type, label, prefix }) {
     const qty = Number(item.quantity || 0);
     const price = Number(item.price || 0);
     const lineTotal = qty * price;
+
+    const desc = item.description || "---";
+    const commaIndex = desc.indexOf(",");
+    let descHtml = "";
+    if (commaIndex !== -1) {
+      const heading = desc.substring(0, commaIndex + 1);
+      const body = desc.substring(commaIndex + 1);
+      descHtml = `<div style="display:flex;flex-direction:column;gap:2px;text-align:left;">
+        <span style="font-weight:700;color:#1e293b;font-size:11px;">${esc(heading)}</span>
+        <span style="font-weight:400;color:#64748b;font-size:10px;margin-top:2px;display:block;">${esc(body.trim())}</span>
+      </div>`;
+    } else {
+      descHtml = `<strong>${esc(desc)}</strong>`;
+    }
+
     return `<tr>
       <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#1a1f2e;vertical-align:top;">${i + 1}</td>
       ${hasBrandModel ? `<td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#444;vertical-align:top;">${esc(item.brand_model || "---")}</td>` : ""}
       <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#1a1f2e;vertical-align:top;">
-        <strong>${esc(item.description || "---")}</strong>
+        ${descHtml}
       </td>
       ${hasHSN ? `<td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#444;vertical-align:top;">${esc(item.hsn_sac || "---")}</td>` : ""}
       <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#1a1f2e;vertical-align:top;text-align:center;">${qty}</td>

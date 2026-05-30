@@ -1,11 +1,11 @@
  
-[Sat 05/30/2026  2:00:13.88] ========== ACHME CRM One-Click Setup started ========== 
-[Sat 05/30/2026  2:00:14.19] Step 1: MySQL check 
-[Sat 05/30/2026  2:00:15.63] MySQL OK, set to auto-start 
-[Sat 05/30/2026  2:00:15.63] Step 2: Node.js check 
-[Sat 05/30/2026  2:00:15.84] Node.js at: C:\Program Files\nodejs\ 
-[Sat 05/30/2026  2:00:15.85] Step 3: Config files 
-[Sat 05/30/2026  2:00:15.86] Step 4: Backend setup 
+[Sat 05/30/2026 10:30:59.13] ========== ACHME CRM One-Click Setup started ========== 
+[Sat 05/30/2026 10:31:00.48] Step 1: MySQL check 
+[Sat 05/30/2026 10:31:01.44] MySQL OK, set to auto-start 
+[Sat 05/30/2026 10:31:01.45] Step 2: Node.js check 
+[Sat 05/30/2026 10:31:01.71] Node.js at: C:\Program Files\nodejs\ 
+[Sat 05/30/2026 10:31:01.71] Step 3: Config files 
+[Sat 05/30/2026 10:31:01.73] Step 4: Backend setup 
 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 npm warn deprecated scmp@2.1.0: Just use Node.js's crypto.timingSafeEqual()
@@ -24,9 +24,9 @@ To address all issues (including breaking changes), run:
   npm audit fix --force
 
 Run `npm audit` for details.
-◇ injected env (14) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
-Database user 'achme_user' already works.
 ◇ injected env (14) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+Database user 'achme_user' already works.
+◇ injected env (14) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
 
 ======================================================
 ⚙️  DATABASE PRE-START CHECK
@@ -36,10 +36,10 @@ Connecting to MySQL at 127.0.0.1:3306 as achme_user...
 ✅ Database 'achme' exists or was successfully created.
 ======================================================
 
-[Sat 05/30/2026  2:00:24.75] Step 5: PM2 check 
-[Sat 05/30/2026  2:00:24.82] npm prefix: C:\Users\thana\AppData\Roaming\npm 
-[Sat 05/30/2026  2:00:25.21] PM2 home: C:\Users\thana\.pm2 
-[Sat 05/30/2026  2:00:25.22] Step 6: Frontend setup 
+[Sat 05/30/2026 10:31:10.43] Step 5: PM2 check 
+[Sat 05/30/2026 10:31:10.50] npm prefix: C:\Users\thana\AppData\Roaming\npm 
+[Sat 05/30/2026 10:31:10.89] PM2 home: C:\Users\thana\.pm2 
+[Sat 05/30/2026 10:31:10.90] Step 6: Frontend setup 
 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
 npm warn deprecated @babel/plugin-proposal-private-methods@7.18.6: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-private-methods instead.
 npm warn deprecated @babel/plugin-proposal-class-properties@7.18.6: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-class-properties instead.
@@ -67,7 +67,7 @@ npm warn deprecated workbox-google-analytics@6.6.0: It is not compatible with ne
 npm warn deprecated svgo@1.3.2: This SVGO version is no longer supported. Upgrade to v2.x.x.
 npm warn deprecated eslint@8.57.1: This version is no longer supported. Please see https://eslint.org/version-support for other options.
 
-added 1404 packages, and audited 1556 packages in 27s
+added 1405 packages, and audited 1557 packages in 25s
 
 284 packages are looking for funding
   run `npm fund` for details
@@ -81,5 +81,15 @@ To address all issues (including breaking changes), run:
   npm audit fix --force
 
 Run `npm audit` for details.
-[Sat 05/30/2026  2:00:52.94] Step 7: Nginx setup 
-[Sat 05/30/2026  2:00:58.13] Step 8: PM2 backend start 
+[Sat 05/30/2026 10:31:36.55] Step 7: Nginx setup 
+[Sat 05/30/2026 10:31:41.21] Step 8: PM2 backend start 
+[PM2][WARN] Applications achme-backend not running, starting...
+[PM2] App [achme-backend] launched (1 instances)
+┌────┬──────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name             │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼──────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ achme-backend    │ default     │ 1.0.0   │ fork    │ 11440    │ 1s     │ 0    │ online    │ 0%       │ 77.1mb   │ thana    │ disabled │
+└────┴──────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[Sat 05/30/2026 10:31:44.80] Step 9: Auto-boot setup 
+[Sat 05/30/2026 10:31:45.21] Scheduled tasks registered 
+[Sat 05/30/2026 10:31:45.60] Step 10: Health verification 

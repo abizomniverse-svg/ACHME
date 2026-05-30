@@ -161,6 +161,35 @@ const Badge = ({ children, bg, text, border }) => (
   </span>
 );
 
+const safeFormatDate = (dateVal) => {
+  if (!dateVal) return "—";
+  try {
+    const dateStr = typeof dateVal === "string" ? dateVal : new Date(dateVal).toISOString();
+    return dateStr.split("T")[0];
+  } catch (e) {
+    return String(dateVal).split("T")[0] || "—";
+  }
+};
+
+const formatTimeOnly = (timeVal) => {
+  if (!timeVal) return "—";
+  const str = String(timeVal);
+  return str.includes(" ") ? (str.split(" ")[1] || str) : str;
+};
+
+const formatTimeAndDuration = (startTime, endTime, actualDuration) => {
+  if (!startTime || !endTime) return "—";
+  try {
+    const sStr = String(startTime);
+    const eStr = String(endTime);
+    const startPart = sStr.includes(" ") ? (sStr.split(" ")[1] || sStr) : sStr;
+    const endPart = eStr.includes(" ") ? (eStr.split(" ")[1] || eStr) : eStr;
+    return `${startPart} - ${endPart} (${actualDuration || 0}m)`;
+  } catch (e) {
+    return `${startTime} - ${endTime} (${actualDuration || 0}m)`;
+  }
+};
+
 const DetailModal = ({ call, onClose, formatCurrency }) => {
   if (!call) return null;
   const sc = STATUS_COLORS[call.status] || STATUS_COLORS.Pending;
@@ -226,22 +255,22 @@ const DetailModal = ({ call, onClose, formatCurrency }) => {
                 </div>
               </div>
               <DetailItem icon={MessageSquare} label="Call Referrer" value={call.call_referrer} />
-              <DetailItem icon={Calendar} label="Report Date" value={call.report_date || call.created_at?.split("T")[0]} />
+              <DetailItem icon={Calendar} label="Report Date" value={safeFormatDate(call.report_date || call.created_at)} />
             </div>
           </div>
 
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wide mb-3 text-primary">Description</h3>
             <div className="p-3 rounded-lg bg-muted/50">
-              <p className="text-sm text-muted-foreground">{call.call_details || call.complaint || "—"}</p>
+              <p className="text-sm text-muted-foreground">{call.call_details || call.complaint || call.description || "—"}</p>
             </div>
           </div>
 
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wide mb-3 text-primary">Time & Duration</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <DetailItem icon={Clock} label="Start Time" value={call.start_time} />
-              <DetailItem icon={Clock} label="End Time" value={call.end_time} />
+              <DetailItem icon={Clock} label="Start Time" value={formatTimeOnly(call.start_time)} />
+              <DetailItem icon={Clock} label="End Time" value={formatTimeOnly(call.end_time)} />
               <div className={`p-3 rounded-lg border ${call.is_exceeded ? "bg-destructive/5 border-destructive/20" : "bg-accent/5 border-accent/20"}`}>
                 <Clock size={16} className={`mt-0.5 ${call.is_exceeded ? "text-destructive" : "text-accent"}`} />
                 <div className="flex-1">
@@ -261,7 +290,7 @@ const DetailModal = ({ call, onClose, formatCurrency }) => {
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wide mb-3 text-primary">Expenses</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <DetailItem icon={MapPin} label="Kilometers" value={call.km ? `${call.km} km` : "—"} />
+              <DetailItem icon={MapPin} label="Kilometers" value={(call.km !== null && call.km !== undefined && call.km !== "") ? `${call.km} km` : "0 km"} />
               <DetailItem icon={DollarIcon} label="Petrol Charges" value={formatCurrency(call.petrol_charges)} />
               <DetailItem icon={DollarIcon} label="Spare Parts" value={formatCurrency(call.spare_parts_price)} />
               <DetailItem icon={DollarIcon} label="Labour Charges" value={formatCurrency(call.labour_charges)} />
@@ -369,7 +398,7 @@ const SessionLogsModal = ({ sessionId, callsList, onClose, formatCurrency, canEd
                       <div>
                         <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Date</p>
                         <p className="font-semibold text-foreground mt-0.5 flex items-center gap-1">
-                          <Calendar size={12} className="text-primary" /> {c.report_date || c.created_at?.split("T")[0] || "—"}
+                          <Calendar size={12} className="text-primary" /> {safeFormatDate(c.report_date || c.created_at)}
                         </p>
                       </div>
                       <div>
@@ -382,7 +411,7 @@ const SessionLogsModal = ({ sessionId, callsList, onClose, formatCurrency, canEd
                         <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Time & Duration</p>
                         <p className="font-semibold text-foreground mt-0.5 flex items-center gap-1">
                           <Clock size={12} className="text-primary" /> 
-                          {c.start_time && c.end_time ? `${c.start_time.split(" ")[1] || c.start_time} - ${c.end_time.split(" ")[1] || c.end_time} (${c.actual_duration || 0}m)` : "—"}
+                          {formatTimeAndDuration(c.start_time, c.end_time, c.actual_duration)}
                         </p>
                       </div>
                       <div>
@@ -402,8 +431,9 @@ const SessionLogsModal = ({ sessionId, callsList, onClose, formatCurrency, canEd
                       </div>
                       <div className="flex flex-col justify-between">
                         <div>
-                          <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Expenses Breakdown</p>
-                          <div className="grid grid-cols-3 gap-2 mt-1 text-[10px] text-muted-foreground">
+                          <p className="font-bold text-muted-foreground uppercase tracking-wide text-[9px]">Expenses & Travel</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1 text-[10px] text-muted-foreground">
+                            <div>KM: {c.km !== null && c.km !== undefined && c.km !== "" ? `${c.km} km` : "0 km"}</div>
                             <div>Petrol: {formatCurrency(c.petrol_charges)}</div>
                             <div>Spare Parts: {formatCurrency(c.spare_parts_price)}</div>
                             <div>Labour: {formatCurrency(c.labour_charges)}</div>
@@ -1461,8 +1491,8 @@ const CallReport = () => {
                                     {dur}m {c.is_exceeded ? `(+${c.actual_duration - (c.duration_limit || c.assigned_time || 30)}m Extra)` : ""}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.total_expenses ? formatCurrency(c.total_expenses) : "—"}</td>
-                                <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.invoice_value ? formatCurrency(c.invoice_value) : "—"}</td>
+                                <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.total_expenses !== null && c.total_expenses !== undefined ? formatCurrency(c.total_expenses) : "—"}</td>
+                                <td className="px-4 py-3 text-xs font-bold text-center text-foreground">{c.invoice_value !== null && c.invoice_value !== undefined ? formatCurrency(c.invoice_value) : "—"}</td>
                                 <td className="px-4 py-3 text-center">
                                   <select
                                     value={c.payment_status || "Pending"}

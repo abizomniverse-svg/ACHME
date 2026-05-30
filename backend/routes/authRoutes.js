@@ -143,7 +143,7 @@ router.post("/admin-login", (req, res) => {
   const emailLower = email.trim().toLowerCase();
 
   db.query(
-    `SELECT id, first_name, last_name, email, role, status, user_password FROM users WHERE email=? OR emp_id=?`,
+    `SELECT id, first_name, last_name, email, role, status, user_password, two_factor_enabled FROM users WHERE email=? OR emp_id=?`,
     [emailLower, emailLower],
     (err, rows) => {
       if (err || !rows.length) {
@@ -154,10 +154,37 @@ router.post("/admin-login", (req, res) => {
       if (user.role !== "admin") return res.status(403).json({ message: "Access denied. Admin only." });
       if (user.status !== "active") return res.status(403).json({ message: "Account is not active" });
 
-      bcrypt.compare(password, user.user_password, (err, match) => {
+      bcrypt.compare(password, user.user_password, async (err, match) => {
         if (err || !match) return res.status(401).json({ message: "Invalid password" });
-        const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "14d" });
-        return res.json({ token, user: { id: user.id, name: user.first_name, email: user.email, role: user.role } });
+
+        if (user.two_factor_enabled) {
+          const otp = generateOtp();
+          const expires = new Date(Date.now() + 5 * 60000);
+
+          db.query(
+            `INSERT INTO email_otp (email, otp, expires_at)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE otp=?, expires_at=?`,
+            [user.email, otp, expires, otp, expires],
+            async (dbErr) => {
+              if (dbErr) {
+                console.error("2FA OTP db save error:", dbErr.message);
+                return res.status(500).json({ message: "Failed to generate 2FA code" });
+              }
+
+              try {
+                await sendEmailOtp(user.email, otp, "Your ACHME CRM 2FA Login Verification Code", true);
+                return res.json({ requires2FA: true, email: user.email, message: "2FA verification code sent to your email" });
+              } catch (mailErr) {
+                console.error("2FA OTP mail send error:", mailErr.message);
+                return res.status(500).json({ message: "Failed to send 2FA verification email" });
+              }
+            }
+          );
+        } else {
+          const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "14d" });
+          return res.json({ token, user: { id: user.id, name: user.first_name, email: user.email, role: user.role } });
+        }
       });
     }
   );
@@ -170,7 +197,7 @@ router.post("/login", (req, res) => {
   const emailLower = email.trim().toLowerCase();
 
   db.query(
-    `SELECT id, first_name, last_name, email, role, status, user_password FROM users WHERE email=? OR emp_id=?`,
+    `SELECT id, first_name, last_name, email, role, status, user_password, two_factor_enabled FROM users WHERE email=? OR emp_id=?`,
     [emailLower, emailLower],
     (err, rows) => {
       if (err || !rows.length) {
@@ -182,10 +209,37 @@ router.post("/login", (req, res) => {
       if (user.status === "banned") return res.status(403).json({ message: "Account has been banned" });
 
       if (password) {
-        bcrypt.compare(password, user.user_password, (err, match) => {
+        bcrypt.compare(password, user.user_password, async (err, match) => {
           if (err || !match) return res.status(401).json({ message: "Invalid password" });
-          const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "14d" });
-          return res.json({ token, user: { id: user.id, name: user.first_name, email: user.email, role: user.role } });
+
+          if (user.two_factor_enabled) {
+            const otp = generateOtp();
+            const expires = new Date(Date.now() + 5 * 60000);
+
+            db.query(
+              `INSERT INTO email_otp (email, otp, expires_at)
+               VALUES (?, ?, ?)
+               ON DUPLICATE KEY UPDATE otp=?, expires_at=?`,
+              [user.email, otp, expires, otp, expires],
+              async (dbErr) => {
+                if (dbErr) {
+                  console.error("2FA OTP db save error:", dbErr.message);
+                  return res.status(500).json({ message: "Failed to generate 2FA code" });
+                }
+
+                try {
+                  await sendEmailOtp(user.email, otp, "Your ACHME CRM 2FA Login Verification Code", true);
+                  return res.json({ requires2FA: true, email: user.email, message: "2FA verification code sent to your email" });
+                } catch (mailErr) {
+                  console.error("2FA OTP mail send error:", mailErr.message);
+                  return res.status(500).json({ message: "Failed to send 2FA verification email" });
+                }
+              }
+            );
+          } else {
+            const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "14d" });
+            return res.json({ token, user: { id: user.id, name: user.first_name, email: user.email, role: user.role } });
+          }
         });
         return;
       }
@@ -444,7 +498,7 @@ router.put("/handle-change-request/:requestId", verifyToken, isAdmin, (req, res)
 router.get("/profile", verifyToken, (req, res) => {
   const userId = req.user.id;
   db.query(
-    `SELECT u.id, u.first_name, u.email, u.role, u.status, u.created_at, 
+    `SELECT u.id, u.first_name, u.email, u.role, u.status, u.created_at, u.two_factor_enabled, 
             tm.job_title, tm.emp_role, tm.mobile_number, tm.emp_address, tm.emp_id
      FROM users u
      LEFT JOIN teammember tm ON u.id = tm.user_id
@@ -949,6 +1003,125 @@ router.get("/admin-email", verifyToken, (req, res) => {
     }
     res.json({ email: rows[0].email });
   });
+});
+
+/* ================= TOGGLE 2FA STATUS ================= */
+router.post("/toggle-2fa", verifyToken, (req, res) => {
+  const userId = req.user.id;
+  const { isEnabled } = req.body;
+  
+  if (isEnabled === undefined) {
+    return res.status(400).json({ message: "isEnabled status is required" });
+  }
+
+  const numericVal = isEnabled ? 1 : 0;
+
+  db.query(
+    "UPDATE users SET two_factor_enabled = ? WHERE id = ?",
+    [numericVal, userId],
+    (err) => {
+      if (err) {
+        console.error("toggle-2fa error:", err);
+        return res.status(500).json({ message: "Failed to update 2FA configuration" });
+      }
+      res.json({ success: true, message: `Two-Factor Authentication successfully ${isEnabled ? 'enabled' : 'disabled'}!`, isEnabled });
+    }
+  );
+});
+
+/* ================= VERIFY 2FA OTP CODE ================= */
+router.post("/verify-2fa", (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ message: "Email and OTP passcode are required" });
+  }
+
+  const emailLower = email.trim().toLowerCase();
+
+  db.query(
+    "SELECT * FROM email_otp WHERE email=? AND otp=? AND expires_at > NOW()",
+    [emailLower, otp],
+    (err, rows) => {
+      if (err) {
+        console.error("verify-2fa select error:", err);
+        return res.status(500).json({ message: "Verification failed due to server error" });
+      }
+
+      if (!rows.length) {
+        return res.status(401).json({ message: "Invalid or expired verification code" });
+      }
+
+      // Cleanup OTP
+      db.query("DELETE FROM email_otp WHERE email=?", [emailLower]);
+
+      // Fetch user profile and issue token
+      db.query(
+        "SELECT id, first_name, email, role, status FROM users WHERE email=?",
+        [emailLower],
+        (err2, userRows) => {
+          if (err2 || !userRows.length) {
+            return res.status(404).json({ message: "Associated account not found" });
+          }
+
+          const user = userRows[0];
+          if (user.status !== "active") {
+            return res.status(403).json({ message: "Account is not active" });
+          }
+
+          const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "14d" });
+          res.json({
+            token,
+            user: { id: user.id, name: user.first_name, email: user.email, role: user.role }
+          });
+        }
+      );
+    }
+  );
+});
+
+/* ================= RESEND 2FA OTP CODE ================= */
+router.post("/resend-2fa", (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: "Email required" });
+  
+  const emailLower = email.trim().toLowerCase();
+
+  db.query(
+    "SELECT id, email, status FROM users WHERE email=?",
+    [emailLower],
+    (err, rows) => {
+      if (err || !rows.length) {
+        return res.status(404).json({ message: "No account found with this email" });
+      }
+
+      const user = rows[0];
+      if (user.status !== "active") return res.status(403).json({ message: "Account is not active" });
+
+      const otp = generateOtp();
+      const expires = new Date(Date.now() + 5 * 60000);
+
+      db.query(
+        `INSERT INTO email_otp (email, otp, expires_at)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE otp=?, expires_at=?`,
+        [emailLower, otp, expires, otp, expires],
+        async (dbErr) => {
+          if (dbErr) {
+            console.error("resend-2fa db error:", dbErr.message);
+            return res.status(500).json({ message: "Failed to generate code" });
+          }
+
+          try {
+            await sendEmailOtp(emailLower, otp, "Your ACHME CRM 2FA Login Verification Code", true);
+            res.json({ success: true, message: "A new 2FA verification code has been sent to your email!" });
+          } catch (mailErr) {
+            console.error("resend-2fa mail error:", mailErr.message);
+            return res.status(500).json({ message: "Failed to send 2FA verification email" });
+          }
+        }
+      );
+    }
+  );
 });
 
 module.exports = router;

@@ -43,15 +43,39 @@ const sendWithRetry = async (mailOptions, retries = 3) => {
   }
 };
 
-const sendEmailOtp = async (email, otp) => {
+const sendEmailOtp = async (email, otp, customSubject, is2fa = false) => {
+  const subject = customSubject || (is2fa ? "Your ACHME CRM 2FA Login Verification Code" : "Your Registration OTP");
+  const htmlContent = is2fa ? `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; border: 1px solid #e5e3df; border-radius: 12px; max-width: 500px; margin: 0 auto; background-color: #ffffff; color: #1a1a1a; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <span style="font-size: 24px; font-weight: 800; color: #5645d4; tracking-tight">ACHME CRM</span>
+      </div>
+      <h2 style="color: #1a1a1a; font-size: 20px; font-weight: 700; text-align: center; margin-bottom: 20px; margin-top: 0;">Two-Factor Verification Code</h2>
+      <p style="font-size: 15px; color: #4a4a4a; line-height: 1.6; text-align: center;">Please enter the following 6-digit verification code to complete your secure sign-in:</p>
+      <div style="background-color: #f6f5f4; border: 1px solid #e5e3df; border-radius: 8px; padding: 18px; text-align: center; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #5645d4; margin: 25px 0; font-family: monospace;">
+        ${otp}
+      </div>
+      <p style="color: #787671; font-size: 13px; line-height: 1.5; text-align: center; margin-bottom: 0;">This code is valid for <strong>5 minutes</strong>. If you did not make this request, please change your password immediately to secure your account.</p>
+    </div>
+  ` : `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; border: 1px solid #e5e3df; border-radius: 12px; max-width: 500px; margin: 0 auto; background-color: #ffffff; color: #1a1a1a; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <span style="font-size: 24px; font-weight: 800; color: #5645d4; tracking-tight">ACHME CRM</span>
+      </div>
+      <h2 style="color: #1a1a1a; font-size: 20px; font-weight: 700; text-align: center; margin-bottom: 20px; margin-top: 0;">Registration Verification Code</h2>
+      <p style="font-size: 15px; color: #4a4a4a; line-height: 1.6; text-align: center;">Use this verification code to complete your registration request:</p>
+      <div style="background-color: #f6f5f4; border: 1px solid #e5e3df; border-radius: 8px; padding: 18px; text-align: center; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #5645d4; margin: 25px 0; font-family: monospace;">
+        ${otp}
+      </div>
+      <p style="color: #787671; font-size: 13px; line-height: 1.5; text-align: center; margin-bottom: 0;">This code is valid for <strong>5 minutes</strong>.</p>
+    </div>
+  `;
+
   await sendWithRetry({
-    from: `"OTP Service" <${process.env.EMAIL_USER}>`,
+    from: `"ACHME CRM Security" <${process.env.EMAIL_USER}>`,
     to: email,
-    subject: "Your Registration OTP",
-    html: `
-      <h2>Your OTP is ${otp}</h2>
-      <p>This OTP is valid for 5 minutes.</p>
-    `,
+    subject: subject,
+    html: htmlContent,
   });
 };
 
