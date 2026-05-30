@@ -1,354 +1,98 @@
-# ACHME CRM Client Go-Live Quickstart
+# ACHME CRM — Client Go-Live Quickstart Guide
 
-Use this when you copy `ACHME_COMUNICATION-main` to a client Windows computer.
+This guide describes how to deploy the ACHME CRM on a client's Windows computer (server) and make it accessible to employees on the local network (WiFi/LAN).
 
-This guide is for the simple LAN deployment:
+---
 
+## 💻 System Architecture
+
+Once installed, the system runs as a lightweight self-hosted local intranet cloud:
 ```text
-Client/employee browser -> http://CLIENT-IP:82 -> Nginx -> Node backend -> MySQL
+Employee Browser ──> http://<SERVER_IP>:82 ──> Nginx ──> PM2 Backend (Port 5000) ──> MySQL
 ```
 
-Important:
-- The ready-to-use live URL is `http://CLIENT-IP:82`.
-- `https://CLIENT-IP:82` is not enabled by default in this setup.
-- If you want real HTTPS, we need to add SSL certificates and trusted browser setup separately.
+---
 
-## Before You Start
+## 📋 Requirements
+The client computer only needs **two prerequisites** pre-installed:
+1. **Node.js** (v18 or higher recommended)
+2. **MySQL Server** (any version like 5.7, 8.0, 8.4, 9.0, or MariaDB)
 
-Use a Windows 10/11 computer that will stay powered on during office hours.
+*Everything else (Nginx, PM2, database user creation, database schema, firewall rules, hosts mapping, and startup schedulers) is automatically downloaded, configured, and run by the one-click installer.*
 
-Recommended:
-- Connect the computer to the office WiFi/LAN.
-- Keep the folder path simple, for example:
+---
 
-```text
-D:\ACHME_COMUNICATION-main
-```
+## 🚀 One-Click Go-Live Instructions
 
-or:
+### 1. Prepare Folder on Client Computer
+Copy the full `ACHME_COMUNICATION-main` folder to a simple location on the client computer, for example:
+* `D:\ACHME_COMUNICATION-main`
+* `C:\ACHME_COMUNICATION-main`
+*(Avoid folders linked to OneDrive, temporary USB locations, or Windows Downloads cleanup folders).*
 
-```text
-C:\ACHME_COMUNICATION-main
-```
+### 2. Run the One-Click Setup
+1. Inside the folder, locate **`start-servers.bat`**.
+2. **Right-click `start-servers.bat`** and select **"Run as Administrator"** (or double-click and click **Yes** to allow Administrator elevation).
+3. The setup will launch a terminal console and perform the following 10 steps automatically:
+   - **Step 1/10**: Detects and starts the local MySQL service.
+   - **Step 2/10**: Verifies Node.js installation.
+   - **Step 3/10**: Writes the production environment configuration.
+   - **Step 4/10**: Configures database users and initializes tables.
+   - **Step 5/10**: Installs PM2 globally and binds the PATH.
+   - **Step 6/10**: Prepares the cached frontend web assets.
+   - **Step 7/10**: Downloads Nginx, installs it to `C:\nginx\`, and writes configuration.
+   - **Step 8/10**: Starts the backend under PM2 with automatic crash recovery.
+   - **Step 9/10**: Adds Firewall rules, maps the `achme.com` domain, and registers boot startup schedulers.
+   - **Step 10/10**: Performs a full health-check of Nginx, the Backend, and loopbacks.
 
-Avoid putting the folder inside OneDrive, Downloads cleanup folders, or a temporary USB location.
+---
 
-## Step By Step
+## 🌐 How to Access the System
 
-1. Copy the full `ACHME_COMUNICATION-main` folder to the client computer.
+Once setup completes, **`show.bat`** will automatically pop up in a new window. It dynamically detects the server’s active LAN IP and displays the access details:
 
-2. Open the folder.
+### 1. From the Server Computer:
+* **Friendly Domain**: `http://achme.com`
+* **Localhost**: `http://localhost:82`
+* **Loopback**: `http://127.0.0.1:82`
+* **Hostname**: `http://<SERVER_HOSTNAME>:82`
 
-3. Right-click either file:
+### 2. From Employee Computers & Mobile Devices (on the same WiFi/LAN):
+* **Direct IP URL**: `http://<SERVER_LAN_IP>:82` (Example: `http://192.168.1.110:82`)
+* **Friendly Domain**: `http://achme.com` *(To use achme.com on an employee PC, simply copy the `employee-hosts-setup.bat` file from the server folder to their PC, right-click, and "Run as Administrator" once).*
 
-```text
-start-live.bat
-start-server.bat
-```
+### 🔑 Admin Credentials:
+* **Email**: `Kk@achmecommunication.com`
+* **Password**: `kk@admin@123`
 
-4. Click:
+---
 
-```text
-Run as administrator
-```
+## 🔄 Automated Lifetime Auto-Boot
 
-5. If Windows asks for permission, click **Yes**.
+You do not need to leave terminal windows open! Setup automatically configures two Scheduled Tasks for maximum uptime:
+1. **`ACHME_CRM_AutoBoot` (Power-on task)**: Triggers silently when the computer turns on (before anyone logs in), starting Nginx, MySQL, and the PM2 backend in the background.
+2. **`ACHME_CRM_Login_Startup` (Logon task)**: Triggers when the user logs in. It dynamically checks if their dynamic IP address changed, re-maps `achme.com` and `IBM-SERVER` to the new IP, and automatically pops up **`show.bat`** on their screen so they know the current access address!
 
-6. Wait. First run can take time because it may install/check dependencies, build React, configure Nginx, and initialize MySQL.
+---
 
-7. When it works, the window will show:
+## 🛠️ Troubleshooting & Support
 
-```text
-ACHME CRM IS LIVE
-```
+### 🛑 If the setup closes instantly
+* **Reason**: This was due to unescaped pipelines in the old installer. The new setup is **100% pipeline-free** and immune to CMD syntax crashes. Ensure you are running the updated `start-servers.bat`.
+* **Fix**: Ensure your antivirus is not blocking PowerShell execution.
 
-8. Open this on the same computer:
+### 🔴 If you see "Cannot connect to server! Start backend on port 5000" in the browser
+* **Reason**: Nginx is running on port 82, but the backend process is stopped under PM2.
+* **Fix**: Run `start-servers.bat` as Administrator again to restore the backend, or check status with `pm2 status`.
 
-```text
-http://localhost:82
-```
+### 🔄 What if the router changes the server's IP address dynamically?
+* **No manual configuration needed!** The auto-boot script is fully dynamic. Simply restart the server computer (or re-run `start-servers.bat`), and Nginx, Hosts mappings, and `show.bat` will instantly re-configure and bind to their new dynamic IP!
 
-9. For other users on the same WiFi/LAN, use the IP shown by the script:
+---
 
-```text
-http://CLIENT-LAN-IP:82
-```
+## 📊 Useful Command Reference
 
-Example:
-
-```text
-http://192.168.1.110:82
-```
-
-## Success Looks Like
-
-The script should show:
-
-```text
-ACHME CRM IS LIVE
-```
-
-These checks should work:
-
-```text
-http://localhost:82
-http://localhost:82/api/health
-http://CLIENT-LAN-IP:82
-http://CLIENT-LAN-IP:82/api/health
-```
-
-The health URL should show JSON like:
-
-```json
-{"ok":true,"database":"ready"}
-```
-
-Login with:
-
-```text
-Email:    Kk@achmecommunication.com
-Password: kk@admin@123
-```
-
-## What The Script Does
-
-`start-live.bat` calls `start_live_nginx_pm2.bat`, which automates:
-
-- Detects the LAN IP.
-- Checks/installs Node.js.
-- Checks/installs PM2.
-- Checks/starts MySQL.
-- Tries to install MySQL with `winget` if missing.
-- Checks/downloads Nginx to `C:\nginx`.
-- Writes `backend\.env`.
-- Writes `frontend\.env.production`.
-- Installs backend dependencies.
-- Installs frontend dependencies.
-- Creates/checks the `achme` database and `achme_user`.
-- Builds the React app.
-- Copies build files to `C:\nginx\html\achme`.
-- Writes `C:\nginx\conf\nginx.conf`.
-- Starts backend using PM2 on port `5000`.
-- Starts Nginx on port `82`.
-- Opens Windows Firewall port `82`.
-- Maps `achme.com` on the server computer.
-- Installs startup restore for the current Windows user.
-- Opens persistent backend and Nginx log windows.
-
-## If It Fails
-
-### If Node.js Fails
-
-Problem signs:
-
-```text
-Node.js not found
-npm not found
-Node.js install failed
-```
-
-Fix:
-
-Install Node.js LTS manually:
-
-```text
-https://nodejs.org
-```
-
-Close the command window, then run `start-live.bat` or `start-server.bat` again as Administrator.
-
-### If MySQL Fails
-
-Problem signs:
-
-```text
-MySQL must be installed and running
-Could not create MySQL user
-Database initialization failed
-```
-
-Fix:
-
-Install MySQL Server 8 manually. During setup, use this root password:
-
-```text
-admin@123
-```
-
-After MySQL setup finishes, run `start-live.bat` or `start-server.bat` again as Administrator.
-
-If MySQL is installed but stopped, start it from Windows Services:
-
-```text
-services.msc -> MySQL80 -> Start
-```
-
-### If Port 82 Fails
-
-Problem signs:
-
-```text
-Nginx did not start
-Port 82 is already in use
-```
-
-Fix:
-
-Restart the computer and run `start-live.bat` or `start-server.bat` again.
-
-If it still fails, check what uses port `82`:
-
-```cmd
-netstat -ano | findstr :82
-```
-
-Then close/stop that software and run `start-live.bat` again.
-
-### If Other Computers Cannot Open The App
-
-First confirm the server computer works:
-
-```text
-http://localhost:82
-```
-
-Then from another computer/phone on the same WiFi, open:
-
-```text
-http://CLIENT-LAN-IP:82
-```
-
-If it does not open:
-
-1. Make sure both devices are on the same WiFi/LAN.
-2. Make sure the server computer is not sleeping.
-3. Run `start-live.bat` or `start-server.bat` as Administrator again so it can open the firewall.
-4. Check Windows Firewall allows TCP port `82`.
-
-### If `achme.com` Does Not Work
-
-This is normal on employee computers unless you add a hosts entry.
-
-The easy option is to use:
-
-```text
-http://CLIENT-LAN-IP:82
-```
-
-To make `achme.com` work on an employee Windows PC:
-
-1. Open Notepad as Administrator.
-2. Open:
-
-```text
-C:\Windows\System32\drivers\etc\hosts
-```
-
-3. Add this line, replacing the IP:
-
-```text
-CLIENT-LAN-IP    achme.com    www.achme.com
-```
-
-Example:
-
-```text
-192.168.1.110    achme.com    www.achme.com
-```
-
-4. Save the file.
-
-Then open:
-
-```text
-http://achme.com:82
-```
-
-### If Login Fails
-
-Try the default admin:
-
-```text
-Email:    Kk@achmecommunication.com
-Password: kk@admin@123
-```
-
-If login still fails, check:
-
-```text
-http://localhost:82/api/health
-```
-
-If health works but login fails, the database may not have seeded users. Run `start-live.bat` or `start-server.bat` again as Administrator.
-
-## Daily Use
-
-After setup, users should use:
-
-```text
-http://CLIENT-LAN-IP:82
-```
-
-The server computer must stay on and connected to the network.
-
-## After Restart
-
-The setup installs a startup restore script for the current Windows user. After login, it should restore:
-
-- PM2 backend
-- Nginx on port `82`
-
-If it does not start automatically, open the folder and run either:
-
-```text
-start-live.bat
-start-server.bat
-```
-
-## Useful Admin Commands
-
-Check backend:
-
-```cmd
-pm2 status
-pm2 logs achme-backend
-show-live-logs.bat
-```
-
-Restart backend:
-
-```cmd
-pm2 restart achme-backend
-```
-
-Reload Nginx:
-
-```cmd
-cd C:\nginx
-nginx.exe -s reload
-```
-
-Stop Nginx:
-
-```cmd
-cd C:\nginx
-nginx.exe -s stop
-```
-
-## Launchers
-
-Both of these now start the live deployment on port `82`:
-
-```text
-start-live.bat
-start-server.bat
-```
-
-Expected live URLs:
-
-```text
-http://localhost:82
-http://CLIENT-LAN-IP:82
-```
-
-If you still see `http://192.168.0.114:3000`, an older development window is still running. Close that old dev process and launch the project again with `start-live.bat` or `start-server.bat`.
+* **Check backend status**: `pm2 status`
+* **Check live backend logs**: `pm2 logs achme-backend` or double-click `show-live-logs.bat`
+* **Stop Nginx manually**: `taskkill /F /IM nginx.exe`
+* **Deregister all services & tasks (uninstaller)**: Run `uninstall-boot-startup.bat` as Administrator.

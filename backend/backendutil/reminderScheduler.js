@@ -275,31 +275,60 @@ function runDailyTaskCheck() {
       const notificationIO = getNotificationIO();
       if (!notificationIO) return;
 
-      // Send notification for each employee with incomplete tasks
+      // Send notification for each employee with incomplete tasks ONLY IF not notified yet!
       Object.keys(employeeTasks).forEach(empName => {
         const tasks = employeeTasks[empName];
         tasks.forEach(task => {
-          notificationIO.emitNotification("task_not_completed", {
-            taskId: task.id,
-            taskName: task.project_name || task.task_title || "Task",
-            employeeName: empName,
-            dueDate: task.due_date,
-            status: task.project_status,
-            type: "task"
-          }, null, true);
+          // Check if task_not_completed notification was already created for this task
+          db.query(
+            "SELECT id FROM admin_notifications WHERE type = 'task_not_completed' AND related_id = ?",
+            [task.id],
+            (checkErr, rows) => {
+              if (checkErr) {
+                console.error("[Scheduler] task_not_completed check error:", checkErr.message);
+                return;
+              }
+              if (!rows || rows.length === 0) {
+                notificationIO.emitNotification("task_not_completed", {
+                  taskId: task.id,
+                  taskName: task.project_name || task.task_title || "Task",
+                  employeeName: empName,
+                  dueDate: task.due_date,
+                  status: task.project_status,
+                  type: "task"
+                }, null, true);
+              }
+            }
+          );
         });
       });
 
-      // Also send summary notification
-      const uniqueEmployees = Object.keys(employeeTasks).length;
-      notificationIO.emitNotification("daily_task_summary", {
-        incompleteCount: incompleteTasks.length,
-        employeeCount: uniqueEmployees,
-        date: today,
-        type: "summary"
-      }, null, true);
+      // Send daily summary notification ONLY ONCE per day!
+      const todayStart = `${today} 00:00:00`;
+      db.query(
+        "SELECT id FROM admin_notifications WHERE type = 'daily_task_summary' AND created_at >= ?",
+        [todayStart],
+        (summaryCheckErr, summaryRows) => {
+          if (summaryCheckErr) {
+            console.error("[Scheduler] daily_task_summary check error:", summaryCheckErr.message);
+            return;
+          }
+          if (!summaryRows || summaryRows.length === 0) {
+            const uniqueEmployees = Object.keys(employeeTasks).length;
+            notificationIO.emitNotification("daily_task_summary", {
+              incompleteCount: incompleteTasks.length,
+              employeeCount: uniqueEmployees,
+              date: today,
+              type: "summary"
+            }, null, true);
+            console.log(`[Scheduler] End-of-day summary notification dispatched: ${incompleteTasks.length} incomplete tasks`);
+          } else {
+            console.log("[Scheduler] Daily summary notification already dispatched for today");
+          }
+        }
+      );
 
-      console.log(`[Scheduler] End-of-day task check: ${incompleteTasks.length} incomplete tasks from ${uniqueEmployees} employees`);
+      console.log(`[Scheduler] End-of-day task check complete. Evaluated ${incompleteTasks.length} incomplete tasks.`);
     }
   );
 }

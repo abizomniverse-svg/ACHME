@@ -1178,7 +1178,6 @@ const CallReport = () => {
     if (!basicForm.call_details?.trim()) return alert("Call details are required");
     if (!basicForm.status) return alert("Status is required");
     if (!basicForm.payment_type) return alert("Payment type is required");
-    if (!basicForm.payment_status) return alert("Payment status is required");
 
     try {
       const durationMap = { "1hr": 60, "1.5hr": 90, "2hr": 120 };
@@ -1196,7 +1195,7 @@ const CallReport = () => {
         status: basicForm.status,
         payment_type: basicForm.payment_type,
         invoice_value: parseFloat(basicForm.invoice_value) || 0,
-        payment_status: basicForm.payment_status,
+        payment_status: basicForm.payment_status || "Pending",
         duration_limit: durationMap[basicForm.duration] || 60,
         assigned_time: durationMap[basicForm.duration] || 60,
         service_type: (basicForm.call_type === "AMC" || basicForm.call_type === "ALC") ? basicForm.call_type : "None",
@@ -1544,12 +1543,11 @@ const CallReport = () => {
                 <tr className="text-muted-foreground font-bold uppercase text-xs border-b border-border">
                   <th className="px-4 py-3 text-left">Engineer</th>
                   <th className="px-4 py-3 text-center w-[120px]">Status</th>
-                  <th className="px-4 py-3 text-left">Current Call</th>
                 </tr>
               </thead>
               <tbody>
                 {ENGINEERS.map((eng) => {
-                  const { isBusy, customerName } = getEngineerStatus(eng.value);
+                  const { isBusy } = getEngineerStatus(eng.value);
                   return (
                     <tr key={eng.value} className="border-b border-border hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3 font-semibold text-foreground">{eng.label}</td>
@@ -1560,9 +1558,6 @@ const CallReport = () => {
                         }}>
                           {isBusy ? "On Call" : "Available"}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm" style={{ color: isBusy ? "hsl(var(--destructive))" : "hsl(var(--muted-foreground))" }}>
-                        {isBusy ? customerName : "—"}
                       </td>
                     </tr>
                   );
@@ -2013,9 +2008,6 @@ const CallReport = () => {
                   </FormField>
                   <FormField label="Payment Type" icon={CreditCard} required>
                     <SearchableSelect options={PAYMENT_TYPE_OPTIONS} value={basicForm.payment_type} onChange={v => setBasicForm({ ...basicForm, payment_type: v })} placeholder="Select Payment Type" />
-                  </FormField>
-                  <FormField label="Payment Status" icon={CheckCircle} required>
-                    <SearchableSelect options={PAYMENT_STATUS_OPTIONS} value={basicForm.payment_status} onChange={v => setBasicForm({ ...basicForm, payment_status: v })} placeholder="Select Payment Status" />
                   </FormField>
                 </div>
 

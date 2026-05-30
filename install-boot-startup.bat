@@ -52,9 +52,20 @@ if exist "%ROOT%\.last-build-ip" (
 )
 
 :: Also detect live via ipconfig
-for /f "usebackq tokens=*" %%p in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-NetIPAddress -AddressFamily IPv4 -Type Unicast -ErrorAction SilentlyContinue | Where-Object IPAddress -NotLike '127*' | Where-Object IPAddress -NotLike '169.254*' | Select-Object -First 1).IPAddress"`) do (
-  set "LAN_IP=%%p"
+for /f "usebackq tokens=*" %%p in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "(Find-NetRoute -RemoteIPAddress '8.8.8.8' -ErrorAction SilentlyContinue).LocalIPAddress, (Get-NetIPAddress -AddressFamily IPv4 -Type Unicast -ErrorAction SilentlyContinue).IPAddress"`) do (
+  set "CANDIDATE=%%p"
+  if not "!CANDIDATE!"=="" (
+    set "PREFIX1=!CANDIDATE:~0,4!"
+    set "PREFIX2=!CANDIDATE:~0,8!"
+    if not "!PREFIX1!"=="127." (
+      if not "!PREFIX2!"=="169.254." (
+        set "LAN_IP=!CANDIDATE!"
+        goto :got_ip
+      )
+    )
+  )
 )
+:got_ip
 goto :ip_done
 :ip_done
 
